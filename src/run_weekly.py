@@ -1,0 +1,208 @@
+"""毎週の投稿を作って、Instagramに出すところまでを一気にやる本体。
+
+■ 流れ
+　1. 設定がそろっているか確認する
+　2. トークンの残り日数を見る（短ければ延長する）
+　3. スプレッドシートから「今週ぶんで、掲載可否が ○」のイベントを取る
+　4. イベントが2件未満なら、投稿せずに終わる（スキップ）
+　5. Google Driveから季節に合う写真を取ってくる
+　6. 画像を組み立てて public/ に保存する
+　7. GitHubにコミットして、画像をネット公開する
+　8. その公開URLをInstagramに渡して投稿する
+
+■ 設計の考え方
+「途中で失敗したら、黙って終わらない」を最優先にしています。
+自動投稿でいちばん怖いのは、エラーではなく沈黙です。
+何かおかしければ必ずエラーで落として、GitHubから3号さんにメールが飛ぶようにします。
+"""
+import sys
+import random
+import datetime as dt
+import time
+import subprocess
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+import config
+import google_client as gc
+import instagram as ig
+from builder import build_week_images, build_caption
+
+WEEKDAY_JA = "月火水木金土日"
+
+
+def this_week(today=None):
+    """今日から見て「今週」の範囲を返す（木曜投稿なので、木曜〜翌水曜）。"""
+    today = today or dt.date.today()
+    start = today
+    end = today + dt.timedelta(days=6)
+    return start, end
+
+
+def fmt_date(iso_start, iso_end):
+    s = dt.date.fromisoformat(iso_start)
+    label = f"{s.month}/{s.day} ({WEEKDAY_JA[s.weekday()]})"
+    if iso_end and iso_end != iso_start:
+        e = dt.date.fromisoformat(iso_end)
+        label += f"〜{e.month}/{e.day}"
+    return label
+
+
+def season_of(d: dt.date):
+    m = d.month
+    if m in (3, 4, 5):
+        return "春"
+    if m in (6, 7, 8):
+        return "夏"
+    if m in (9, 10, 11):
+        return "秋"
+    return "冬"
+
+
+def fetch_photo(season, used, workdir):
+    """季節フォルダから写真を1枚取ってくる。なければ通年から。それもなければNone。
+
+    同じ投稿の中で同じ写真が2回出ないよう、使ったIDを覚えておく。
+    """
+    for folder_key in (season, "通年"):
+        fid = config.PHOTO_FOLDERS.get(folder_key)
+        if not fid:
+            continue
+        files = [f for f in gc.list_photos(fid) if f["id"] not in used]
+        if not files:
+            continue
+        pick = random.choice(files)
+        used.add(pick["id"])
+        dest = workdir / f"photo_{pick['id']}{Path(pick['name']).suffix}"
+        gc.download(pick["id"], dest)
+        print(f"  写真: {folder_key} / {pick['name']}")
+        return dest
+    print(f"  写真: 見つからないのでイラストを使います（{season}）")
+    return None
+
+
+def git_push(paths, message):
+    """生成した画像をGitHubにコミットして公開する。
+
+    Instagram APIは公開URLの画像しか受け取れない。
+    有料の画像置き場を借りなくても、GitHubの公開リポジトリで代用できる。
+    """
+    subprocess.run(["git", "config", "user.name", "aimilk-bot"], check=True)
+    subprocess.run(["git", "config", "user.email", "aimilk-bot@users.noreply.github.com"], check=True)
+    subprocess.run(["git", "add"] + [str(p) for p in paths], check=True)
+    r = subprocess.run(["git", "diff", "--cached", "--quiet"])
+    if r.returncode == 0:
+        print("  コミットする変更なし")
+        return
+    subprocess.run(["git", "commit", "-m", message], check=True)
+    subprocess.run(["git", "push"], check=True)
+    print("  GitHubへ公開しました")
+
+
+def wait_urls_live(urls, timeout=180):
+    """画像のURLが実際に見えるようになるまで待つ。
+
+    GitHubにコミットしても、公開URLから取れるようになるまで数秒〜数十秒かかることがある。
+    まだ見えていないURLをInstagramに渡すと「画像が取得できません」で失敗する。
+    自分で見に行って、200が返ってから先へ進む。
+    """
+    import requests
+    started = time.time()
+    for u in urls:
+        while True:
+            try:
+                if requests.head(u, timeout=20, allow_redirects=True).status_code == 200:
+                    break
+            except requests.RequestException:
+                pass
+            if time.time() - started > timeout:
+                raise SystemExit(f"画像の公開URLが見えるようになりません: {u}")
+            time.sleep(5)
+    print("■ 画像の公開URL、すべて確認できました")
+
+
+def main(dry_run=False):
+    config.check_required()
+    today = dt.date.today()
+    start, end = this_week(today)
+    print(f"■ 対象期間: {start} 〜 {end}")
+
+    # --- トークンの健康診断 --------------------------------------------
+    days = ig.token_days_left()
+    print(f"■ アクセストークン残り: 約{days}日")
+    if days < 30:
+        new_token = ig.refresh_token()
+        print("■ トークンを延長しました。GitHubのSecrets(IG_ACCESS_TOKEN)を更新してください")
+        # GitHub Actions上ならログに出力（値そのものはマスクされる）
+        print(f"::add-mask::{new_token}")
+        Path("new_token.txt").write_text(new_token, encoding="utf-8")
+    if days < config.TOKEN_WARN_DAYS:
+        raise SystemExit(
+            f"アクセストークンの残りが{days}日です。延長に失敗している可能性があります。"
+            "手動で取り直してください。（投稿は中止しました）")
+
+    # --- イベントを取る --------------------------------------------------
+    rows = gc.read_events()
+    picked = gc.pick_week(rows, start, end)
+    print(f"■ 今週の掲載可（○）イベント: {len(picked)}件")
+    for e in picked:
+        print(f"   - {e['開始日']} {e['イベント名']}")
+
+    if len(picked) < config.MIN_EVENTS:
+        print(f"■ {config.MIN_EVENTS}件未満のため、今週は投稿しません（スキップ）")
+        return 0
+
+    picked = picked[:config.MAX_EVENTS]
+
+    # --- 写真をそろえる --------------------------------------------------
+    workdir = config.ROOT / "work"
+    workdir.mkdir(exist_ok=True)
+    used = set()
+    season = season_of(today)
+
+    week = {
+        "range": f"{start.year}.{start.month}.{start.day} 〜 {end.month}.{end.day}",
+        "motif": season,
+        "sources": "、".join(sorted({e.get("情報源", "") for e in picked if e.get("情報源")}))
+                   or "箱根町ホームページ",
+        "photo": str(fetch_photo(season, used, workdir) or ""),
+        "events": [],
+    }
+    for e in picked:
+        week["events"].append({
+            "date": fmt_date(e["開始日"], e.get("終了日", "")),
+            "category": e.get("区分", ""),
+            "title": e.get("イベント名", ""),
+            "place": e.get("場所", ""),
+            "time": e.get("時間", ""),
+            "scale": e.get("規模・備考", ""),
+            "note": e.get("みるくコメント", ""),
+            "motif": e.get("モチーフ", "") or season,
+            "photo": str(fetch_photo(season, used, workdir) or ""),
+        })
+
+    # --- 画像を作る ------------------------------------------------------
+    stamp = today.strftime("%Y%m%d")
+    outdir = config.OUT_DIR / stamp
+    paths = build_week_images(week, outdir)
+    caption = build_caption(week)
+    print(f"■ 画像を{len(paths)}枚生成しました -> {outdir}")
+
+    if dry_run:
+        print("■ dry-run のためここで終了します（投稿はしません）")
+        print("---- キャプション ----")
+        print(caption)
+        return 0
+
+    # --- 公開して投稿 ----------------------------------------------------
+    git_push(paths, f"AIみるく {stamp} の投稿画像")
+    urls = [config.public_url(f"{stamp}/{p.name}") for p in paths]
+    wait_urls_live(urls)
+    post_id = ig.post_carousel(urls, caption)
+    print(f"■ 投稿しました: {post_id}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(dry_run="--dry-run" in sys.argv))
