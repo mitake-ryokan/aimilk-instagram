@@ -1,0 +1,50 @@
+name: AIみるく 週次投稿
+
+on:
+  schedule:
+    # cron は UTC。日本時間の木曜18:00 → UTC 木曜09:00
+    - cron: "0 9 * * 4"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "投稿せず、画像とキャプションの生成だけ試す"
+        type: boolean
+        default: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 必要なライブラリを入れる
+        run: pip install -r requirements.txt
+
+      - name: 投稿を作って出す
+        env:
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          FB_APP_ID: ${{ secrets.FB_APP_ID }}
+          FB_APP_SECRET: ${{ secrets.FB_APP_SECRET }}
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+          GITHUB_BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python src/run_weekly.py --dry-run
+          else
+            python src/run_weekly.py
+          fi
+
+      - name: 失敗したことを分かりやすく残す
+        if: failure()
+        run: echo "::error::AIみるくの週次投稿に失敗しました。ログを確認してください。"
