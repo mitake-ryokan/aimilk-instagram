@@ -29,6 +29,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: 日本語フォントを入れる
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk fonts-noto-cjk-extra
+
       - name: 必要なライブラリを入れる
         run: pip install -r requirements.txt
 
