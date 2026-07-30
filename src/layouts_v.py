@@ -82,7 +82,31 @@ def _f(p, s):
     return ImageFont.truetype(p, s)
 
 
-def _milk(h, src="milk_cutout.png"):
+# AIみるくの切り抜きPNGの場所。
+# ■ なぜ「このファイルからの相対」で組み立てるのか
+# ただの "milk_cutout.png" だと「いま実行している場所」基準で探すため、
+# 手元では動くのにGitHub Actions（リポジトリのルートで実行）では見つからない。
+# __file__（このファイル自身の場所）を起点にすれば、どこから実行しても同じ場所を指す。
+_MILK_CANDIDATES = [
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "milk_cutout.png"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "milk_cutout.png"),
+    "milk_cutout.png",
+]
+
+
+def _milk(h, src=None):
+    if src is None:
+        for c in _MILK_CANDIDATES:
+            if os.path.exists(c):
+                src = c
+                break
+        else:
+            # AIみるくがいない投稿は「壊れた画像」ではなく「別人の投稿」。
+            # 写真やフォントと違って代用が利かないので、ここは止める。
+            # このファイルはリポジトリに入っているので、無い＝配置ミス。直せば二度と起きない。
+            raise FileNotFoundError(
+                "assets/milk_cutout.png が見つかりません。"
+                "リポジトリの assets フォルダに切り抜きPNGがあるか確認してください。")
     k = (src, h)
     if k not in _cache:
         im = Image.open(src)
