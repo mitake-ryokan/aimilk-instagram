@@ -31,9 +31,39 @@ SOFT = (245, 226, 220)
 # 意味がない。キャラクターの呼び名（AIみるく）は本文の名乗りで伝わるので、混ぜない。
 HANDLE = "@mitake_hakone"
 
-BLACK_F = "/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc"
-BOLD_F = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
-MED_F = "/usr/share/fonts/opentype/noto/NotoSansCJK-Medium.ttc"
+# ■ フォントの場所は環境によって違う
+# 手元のパソコンでは全部の太さが入っていても、GitHub Actionsのサーバーには
+# 太字（Black）や中字（Medium）が入っていないことがある。
+# パスを決め打ちにすると、そこで「cannot open resource」で落ちる。
+# 見つかった順に使い、無ければ細い太さで代用する。デザインは少し変わるが、止まらない。
+_FONT_DIRS = [
+    "/usr/share/fonts/opentype/noto",
+    "/usr/share/fonts/truetype/noto",
+    "/usr/share/fonts/opentype/noto-cjk",
+    "/System/Library/Fonts",                       # Mac
+    "C:/Windows/Fonts",                            # Windows
+]
+
+
+def _find_font(*names):
+    """候補の名前を順に探して、最初に見つかったパスを返す。"""
+    for name in names:
+        for d in _FONT_DIRS:
+            p = os.path.join(d, name)
+            if os.path.exists(p):
+                return p
+    raise RuntimeError(
+        "日本語フォントが見つかりません。"
+        "GitHub Actions で動かす場合は fonts-noto-cjk と fonts-noto-cjk-extra を "
+        "インストールするステップが必要です。")
+
+
+BLACK_F = _find_font("NotoSansCJK-Black.ttc", "NotoSansCJK-Bold.ttc",
+                     "NotoSansCJK-Regular.ttc", "NotoSansJP-Bold.otf")
+BOLD_F = _find_font("NotoSansCJK-Bold.ttc", "NotoSansCJK-Regular.ttc",
+                    "NotoSansJP-Bold.otf")
+MED_F = _find_font("NotoSansCJK-Medium.ttc", "NotoSansCJK-Regular.ttc",
+                   "NotoSansJP-Regular.otf")
 
 _cache = {}
 
