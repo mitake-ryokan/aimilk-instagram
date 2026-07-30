@@ -15,6 +15,16 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import os
 import motifs
 
+# ■ iPhoneの写真（HEIC）を開けるようにする
+# 3号さんがスマホで撮ってDriveに入れる写真は、たいていHEIC形式。
+# Pillow単体では開けず、pillow-heif を「登録」してはじめて開けるようになる。
+# requirements.txt に入れるだけでは効かない。この2行が本体。
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass    # 入っていない環境（手元での試作など）では、HEICなし運用として動く
+
 W, H = 1080, 1350
 FOOT = 78
 
@@ -118,9 +128,16 @@ def _fill(src_path, motif, bw, bh, anchor="center"):
 
     anchor="top" にすると上寄せで切る。人物や被写体が上にある縦写真向け。
     """
+    # 写真が開けなかったら、止まらずにイラストへ落とす。
+    # Driveには将来、想定外の形式（動画のサムネイル、壊れたファイル等）が
+    # 混ざるかもしれない。1枚のせいで週の投稿ごと止めない。
+    im = None
     if src_path and os.path.exists(src_path):
-        im = Image.open(src_path).convert("RGB")
-    else:
+        try:
+            im = Image.open(src_path).convert("RGB")
+        except Exception as e:
+            print(f"  写真が開けないためイラストに切り替え: {os.path.basename(src_path)} ({e})")
+    if im is None:
         im = motifs.get(motif, bh).convert("RGB")
     sc = max(bw / im.width, bh / im.height)
     im = im.resize((max(int(im.width * sc), bw), max(int(im.height * sc), bh)), Image.LANCZOS)
