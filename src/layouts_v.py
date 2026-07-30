@@ -25,6 +25,12 @@ GRAY = (150, 140, 130)
 WHITE = (255, 255, 255)
 SOFT = (245, 226, 220)
 
+# 全スライドのフッターに入れる署名。
+# ■ 必ず「実在するInstagramのユーザーネーム」を書くこと
+# ここは「この投稿は誰のものか」を示す場所で、見た人が検索して辿り着ける文字列でなければ
+# 意味がない。キャラクターの呼び名（AIみるく）は本文の名乗りで伝わるので、混ぜない。
+HANDLE = "@mitake_hakone"
+
 BLACK_F = "/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc"
 BOLD_F = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
 MED_F = "/usr/share/fonts/opentype/noto/NotoSansCJK-Medium.ttc"
@@ -56,6 +62,25 @@ def _wrap(d, text, font, max_w):
     if cur:
         lines.append(cur)
     return lines
+
+
+def _wrap_cap(d, text, font, max_w, max_lines):
+    """折り返した上で、行数を超えたぶんは「…」で打ち切る。
+
+    自動投稿では、3号さんが備考欄に長い文章を書いた回に
+    文字が枠からはみ出して事故になる。入り切らないことを前提に、
+    必ず枠内で収まるところまでで切る。
+    """
+    lines = _wrap(d, text, font, max_w)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = lines[-1][:-1] + "…"
+    return lines
+
+
+# AIみるくは画像の右下に立つので、文字はここより右に置かない。
+# （高さ300で貼ると幅238。右端から60余白なので x=782 から先はAIみるくの領域）
+TEXT_L, TEXT_R = 90, 770
 
 
 def _fill(src_path, motif, bw, bh, anchor="center"):
@@ -111,45 +136,72 @@ def _footer(d):
     d.rectangle([0, H - FOOT, W, H], fill=RED)
     ft = _f(BOLD_F, 30)
     d.text((60, H - FOOT // 2), "温泉旅館みたけ ｜ 箱根・仙石原", font=ft, fill=WHITE, anchor="lm")
-    d.text((W - 60, H - FOOT // 2), "@AIみるくちゃん", font=ft, fill=(255, 220, 214), anchor="rm")
+    d.text((W - 60, H - FOOT // 2), HANDLE, font=ft, fill=(255, 220, 214), anchor="rm")
 
 
 # ==================================================== A案：全面写真＋下部カード
 def event_full(ev, week):
+    # ── 先に文字を組み立てて、カードの高さを決める ──────────────
+    # 先に高さを測っておかないと、備考が長い回にカードから文字があふれる。
+    # 「文字の量に合わせてカードを伸ばす」ほうが、事故が起きない。
+    md = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    tf = _f(BLACK_F, 58)
+    lf = _f(BLACK_F, 28)
+    vf = _f(BOLD_F, 34)
+    nf = _f(MED_F, 30)
+
+    title_lines = _wrap_cap(md, ev["title"], tf, TEXT_R - TEXT_L, 2)
+    rows = []
+    for label, key in (("場所", "place"), ("時間", "time"), ("規模", "scale")):
+        if ev.get(key):
+            rows.append((label, _wrap_cap(md, ev[key], vf, TEXT_R - 175, 2)))
+    note_lines = _wrap_cap(md, ev["note"], nf, TEXT_R - TEXT_L, 2) if ev.get("note") else []
+
+    card_h = 44 + 74 * len(title_lines) + 14
+    for _, vls in rows:
+        card_h += 52 * len(vls)
+    if note_lines:
+        card_h += 6 + 42 * len(note_lines)
+    card_h = max(card_h + 40, 300)
+    CY = H - FOOT - 40 - card_h
+
     img = Image.new("RGB", (W, H), CREAM)
     photo = _fill(ev.get("photo"), ev.get("motif") or week.get("motif", "通年"),
                   W, H - FOOT, anchor=ev.get("anchor", "center"))
     img.paste(photo, (0, 0))
     # 上下にスクリム。濃さは写真の明るさから自動で決める
     _scrim(img, (0, 0, W, 300), auto_strength(img, (0, 0, W, 200), 90, 60, 200), "up")
-    _scrim(img, (0, H - FOOT - 700, W, H - FOOT),
-           auto_strength(img, (0, H - FOOT - 560, W, H - FOOT - 420), 95, 70, 215), "down")
+    _scrim(img, (0, CY - 230, W, H - FOOT),
+           auto_strength(img, (0, CY - 90, W, CY + 50), 95, 70, 215), "down")
     d = ImageDraw.Draw(img)
 
-    d.rounded_rectangle([60, 60, 310, 132], radius=36, fill=RED)
-    d.text((185, 96), ev["date"], font=_f(BLACK_F, 42), fill=WHITE, anchor="mm")
+    # 日付のピル。日付の長さは「8/3 (月)」から「7/31 (金)〜8/5」まで幅が変わるので、
+    # 幅を決め打ちにすると長い回に文字がはみ出す。文字を測ってから描く。
+    dtf = _f(BLACK_F, 42)
+    pill_r = 60 + 40 + int(md.textlength(ev["date"], font=dtf)) + 40
+    d.rounded_rectangle([60, 60, pill_r, 132], radius=36, fill=RED)
+    d.text(((60 + pill_r) // 2, 96), ev["date"], font=dtf, fill=WHITE, anchor="mm")
     if ev.get("category"):
-        d.text((340, 96), ev["category"], font=_f(BOLD_F, 32), fill=(255, 246, 236), anchor="lm")
+        d.text((pill_r + 30, 96), ev["category"], font=_f(BOLD_F, 32),
+               fill=(255, 246, 236), anchor="lm")
 
     # 情報カード
-    CY = H - FOOT - 470
     d.rounded_rectangle([50, CY, W - 50, H - FOOT - 40], radius=36, fill=CREAM)
 
     y = CY + 44
-    ft = _f(BLACK_F, 58)
-    for ln in _wrap(d, ev["title"], ft, W - 240)[:2]:
-        d.text((90, y), ln, font=ft, fill=DARK)
+    for ln in title_lines:
+        d.text((TEXT_L, y), ln, font=tf, fill=DARK)
         y += 74
     y += 14
-    for label, key in (("場所", "place"), ("時間", "time"), ("規模", "scale")):
-        if ev.get(key):
-            d.text((90, y), label, font=_f(BLACK_F, 28), fill=RED)
-            d.text((175, y), ev[key], font=_f(BOLD_F, 34), fill=DARK)
+    for label, vls in rows:
+        d.text((TEXT_L, y), label, font=lf, fill=RED)
+        for vl in vls:
+            d.text((175, y), vl, font=vf, fill=DARK)
             y += 52
-    if ev.get("note"):
+    if note_lines:
         y += 6
-        for ln in _wrap(d, ev["note"], _f(MED_F, 30), W - 420)[:2]:
-            d.text((90, y), ln, font=_f(MED_F, 30), fill=(96, 80, 70))
+        for ln in note_lines:
+            d.text((TEXT_L, y), ln, font=nf, fill=(96, 80, 70))
             y += 42
 
     m = _milk(300)
@@ -301,7 +353,12 @@ def build(week, layout="full", outdir="out_v", prefix="v"):
     imgs = [cover(week)] + [event(e, week) for e in week.get("events", [])[:8]] + [closing(week)]
     paths = []
     for i, im in enumerate(imgs):
-        p = os.path.join(outdir, f"{prefix}_{layout}_{i + 1:02d}.png")
-        im.save(p, quality=95)
+        # ■ なぜJPEGなのか（PNGではダメ）
+        # Instagramのコンテンツ公開APIは JPEG しか受け付けない。
+        # PNGを渡すと、投稿の直前に「画像の処理に失敗」で落ちる。
+        # 原因がURLにあるのか画像にあるのか分からない失敗の仕方をするので、
+        # ここで確実にJPEGにしておく。
+        p = os.path.join(outdir, f"{prefix}_{layout}_{i + 1:02d}.jpg")
+        im.convert("RGB").save(p, "JPEG", quality=92, optimize=True, subsampling=1)
         paths.append(p)
     return paths

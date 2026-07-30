@@ -15,6 +15,7 @@
 自動投稿でいちばん怖いのは、エラーではなく沈黙です。
 何かおかしければ必ずエラーで落として、GitHubから3号さんにメールが飛ぶようにします。
 """
+import os
 import sys
 import random
 import datetime as dt
@@ -82,6 +83,34 @@ def fetch_photo(season, used, workdir):
     return None
 
 
+def save_secret(name, value):
+    """GitHubのSecretsを書き換える。成功したらTrue。
+
+    ■ なぜこれが要るのか
+    トークンは60日で切れます。毎週延長すれば切れませんが、
+    「延長した新しいトークンをどこに保存するか」という問題が残ります。
+    保存できなければ、結局60日後に静かに止まる。
+    そこで、GitHub自身のSecretsに書き戻して、次回の実行がそれを読むようにします。
+
+    ■ なぜ別のトークン（GH_PAT）が要るのか
+    GitHub Actionsが自動で持っている権限では、Secretsは書き換えられません。
+    （書き換えられたら、ワークフローを書き換えた人が何でもできてしまうため）
+    なので「Secretsを書く権限だけ」を持つ鍵を別に用意して渡します。
+    用意していない場合は、警告を出すだけで止めません。投稿自体はできるからです。
+    """
+    if not config.GH_PAT:
+        return False
+    repo = f"{config.GITHUB_OWNER}/{config.GITHUB_REPO}"
+    r = subprocess.run(
+        ["gh", "secret", "set", name, "--body", value, "--repo", repo],
+        env={**os.environ, "GH_TOKEN": config.GH_PAT},
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"::warning::Secretsの更新に失敗: {r.stderr[:300]}")
+        return False
+    return True
+
+
 def git_push(paths, message):
     """生成した画像をGitHubにコミットして公開する。
 
@@ -129,18 +158,31 @@ def main(dry_run=False):
     print(f"■ 対象期間: {start} 〜 {end}")
 
     # --- トークンの健康診断 --------------------------------------------
-    days = ig.token_days_left()
-    print(f"■ アクセストークン残り: 約{days}日")
-    if days < 30:
-        new_token = ig.refresh_token()
-        print("■ トークンを延長しました。GitHubのSecrets(IG_ACCESS_TOKEN)を更新してください")
-        # GitHub Actions上ならログに出力（値そのものはマスクされる）
-        print(f"::add-mask::{new_token}")
-        Path("new_token.txt").write_text(new_token, encoding="utf-8")
+    # 新方式（graph.instagram.com）には「あと何日？」と聞く窓口がない。
+    # 代わりに延長すると残り秒数を返してくれるので、毎回とりあえず延長する。
+    # 延長は24時間経っていれば何度でもでき、そのたびに60日に戻る。
+    new_token, days = ig.refresh_token()
+    print(f"■ トークンを延長しました。延長後の残り: 約{days}日")
+    print(f"::add-mask::{new_token}")
+
+    if new_token != config.IG_ACCESS_TOKEN:
+        if save_secret("IG_ACCESS_TOKEN", new_token):
+            print("■ 新しいトークンを GitHub の Secrets に保存しました")
+        else:
+            print("::warning::新しいトークンを保存できませんでした。"
+                  "GH_PAT が未設定です。手動で Secrets の IG_ACCESS_TOKEN を "
+                  "更新しないと、いずれ投稿が止まります")
+        # 今回の実行は、延長後の新しいトークンで進める
+        config.IG_ACCESS_TOKEN = new_token
+
     if days < config.TOKEN_WARN_DAYS:
         raise SystemExit(
-            f"アクセストークンの残りが{days}日です。延長に失敗している可能性があります。"
+            f"アクセストークンの残りが{days}日です。延長が効いていません。"
             "手動で取り直してください。（投稿は中止しました）")
+
+    # --- 投稿先の確認 ----------------------------------------------------
+    me = ig.whoami()
+    print(f"■ 投稿先: @{me.get('username')}（id: {me.get('user_id')}）")
 
     # --- イベントを取る --------------------------------------------------
     rows = gc.read_events()

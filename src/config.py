@@ -19,19 +19,30 @@ OUT_DIR = ROOT / "public"          # 生成した画像を置く場所（ここ�
 ASSETS = ROOT / "assets"           # AIみるくの切り抜きPNGなど
 
 # ---------------------------------------------------------------- Instagram
-# Graph APIのバージョン。Metaは年に数回上げるので、動かなくなったらここを確認する
-GRAPH_VERSION = os.environ.get("GRAPH_VERSION", "v21.0")
-GRAPH = f"https://graph.facebook.com/{GRAPH_VERSION}"
+# ■ 窓口は graph.instagram.com（Instagramログイン方式）
+# graph.facebook.com（Facebookログイン方式）ではない。
+# 旧方式はFacebookページを経由するため、ページがビジネスポートフォリオ所有だと
+# アプリから解決できずに詰まる。新方式はページを一切経由しない。
+IG_GRAPH_VERSION = os.environ.get("IG_GRAPH_VERSION", "v23.0")
+IG_GRAPH = f"https://graph.instagram.com/{IG_GRAPH_VERSION}"
 
-IG_USER_ID = os.environ.get("IG_USER_ID", "")          # InstagramビジネスアカウントのID
-IG_ACCESS_TOKEN = os.environ.get("IG_ACCESS_TOKEN", "")  # 長期アクセストークン
-FB_APP_ID = os.environ.get("FB_APP_ID", "")
-FB_APP_SECRET = os.environ.get("FB_APP_SECRET", "")
+IG_ACCESS_TOKEN = os.environ.get("IG_ACCESS_TOKEN", "")  # 長期アクセストークン（60日）
+
+# 投稿先のID。空でよい。空なら "me"（トークンの持ち主）に投稿する。
+# 新方式ではトークンがアカウントに直結しているので、人がIDを調べる必要がない。
+IG_USER_ID = os.environ.get("IG_USER_ID", "")
+
+# 短期トークンを長期に交換するときだけ使う。通常の運用では不要。
+IG_APP_SECRET = os.environ.get("IG_APP_SECRET", "")
+
+# 延長した新しいトークンを、GitHubのSecretsに自動で書き戻すためのトークン。
+# 空なら書き戻さず、ログに警告を出すだけ（3号さんが手で貼り替える運用になる）。
+GH_PAT = os.environ.get("GH_PAT", "")
 
 # ---------------------------------------------------------------- Google
 # サービスアカウントのJSONを丸ごと文字列で入れる（GitHub Secretsに貼る想定）
 GOOGLE_SA_JSON = os.environ.get("GOOGLE_SA_JSON", "")
-SHEET_ID = os.environ.get("SHEET_ID", "1U1ha5M1z_W7ytqFi2GtiiZHMv30rnuJ75LA7L9bI56k")
+SHEET_ID = os.environ.get("SHEET_ID", "1lmt2I2X9U070SAw4La-TpqVmoml0rhh9IpRAFwekfkw")
 
 # Google Drive の写真フォルダ
 PHOTO_FOLDERS = {
@@ -70,10 +81,7 @@ def check_required():
     最初にまとめて確認して、足りないものを全部並べて教える。
     """
     missing = [k for k, v in {
-        "IG_USER_ID": IG_USER_ID,
         "IG_ACCESS_TOKEN": IG_ACCESS_TOKEN,
-        "FB_APP_ID": FB_APP_ID,
-        "FB_APP_SECRET": FB_APP_SECRET,
         "GOOGLE_SA_JSON": GOOGLE_SA_JSON,
         "GITHUB_OWNER": GITHUB_OWNER,
         "GITHUB_REPO": GITHUB_REPO,
