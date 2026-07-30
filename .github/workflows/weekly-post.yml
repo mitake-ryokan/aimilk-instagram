@@ -1,10 +1,15 @@
 name: AIみるく 週次投稿
 
+# ■ これは何か
+# GitHubが用意している「決まった時間に勝手にプログラムを動かす」仕組み（GitHub Actions）。
+# 3号さんのパソコンが閉じていても、GitHubのサーバーが代わりに動かしてくれる。無料。
+
 on:
   schedule:
-    # cron は UTC。日本時間の木曜18:00 → UTC 木曜09:00
+    # cron は UTC（世界標準時）で書く。日本時間は UTC+9。
+    # 日本時間の木曜18:00 に投稿したい → UTC では木曜09:00
     - cron: "0 9 * * 4"
-  workflow_dispatch:
+  workflow_dispatch:      # 画面のボタンから手動でも実行できるようにする
     inputs:
       dry_run:
         description: "投稿せず、画像とキャプションの生成だけ試す"
@@ -15,7 +20,7 @@ jobs:
   post:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write     # 生成した画像をリポジトリにコミットするために必要
 
     steps:
       - uses: actions/checkout@v4
@@ -29,10 +34,10 @@ jobs:
 
       - name: 投稿を作って出す
         env:
-          IG_USER_ID: ${{ secrets.IG_USER_ID }}
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
-          FB_APP_ID: ${{ secrets.FB_APP_ID }}
-          FB_APP_SECRET: ${{ secrets.FB_APP_SECRET }}
+          # 以下は任意。GH_PAT を入れておくと、延長したトークンを自動で保存する
+          GH_PAT: ${{ secrets.GH_PAT }}
+          IG_APP_SECRET: ${{ secrets.IG_APP_SECRET }}
           GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
           GITHUB_OWNER: ${{ github.repository_owner }}
@@ -45,6 +50,8 @@ jobs:
             python src/run_weekly.py
           fi
 
+      # 失敗したらGitHubから3号さんにメールが届く（GitHubの標準機能）。
+      # 「静かに止まる」のを防ぐのがこの仕組みの目的。
       - name: 失敗したことを分かりやすく残す
         if: failure()
         run: echo "::error::AIみるくの週次投稿に失敗しました。ログを確認してください。"
