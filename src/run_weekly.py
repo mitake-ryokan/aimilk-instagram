@@ -161,27 +161,42 @@ def main(dry_run=False):
     # 新方式（graph.instagram.com）には「あと何日？」と聞く窓口がない。
     # 代わりに延長すると残り秒数を返してくれるので、毎回とりあえず延長する。
     # 延長は24時間経っていれば何度でもでき、そのたびに60日に戻る。
-    new_token, days = ig.refresh_token()
-    print(f"■ トークンを延長しました。延長後の残り: 約{days}日")
-    print(f"::add-mask::{new_token}")
+    # 延長できないケースが1つある：発行から24時間経っていないトークン。
+    # 取ったばかりの初回はここで必ず失敗する。だが失敗＝異常ではない。
+    # なので「延長できなかったら、そのトークンがまだ生きているか確かめる」に分ける。
+    # 生きていれば進む。死んでいれば止める。
+    try:
+        new_token, days = ig.refresh_token()
+        print(f"■ トークンを延長しました。延長後の残り: 約{days}日")
+        print(f"::add-mask::{new_token}")
 
-    if new_token != config.IG_ACCESS_TOKEN:
-        if save_secret("IG_ACCESS_TOKEN", new_token):
-            print("■ 新しいトークンを GitHub の Secrets に保存しました")
-        else:
-            print("::warning::新しいトークンを保存できませんでした。"
-                  "GH_PAT が未設定です。手動で Secrets の IG_ACCESS_TOKEN を "
-                  "更新しないと、いずれ投稿が止まります")
-        # 今回の実行は、延長後の新しいトークンで進める
-        config.IG_ACCESS_TOKEN = new_token
+        if new_token != config.IG_ACCESS_TOKEN:
+            if save_secret("IG_ACCESS_TOKEN", new_token):
+                print("■ 新しいトークンを GitHub の Secrets に保存しました")
+            else:
+                print("::warning::新しいトークンを保存できませんでした。"
+                      "GH_PAT が未設定です。手動で Secrets の IG_ACCESS_TOKEN を "
+                      "更新しないと、いずれ投稿が止まります")
+            # 今回の実行は、延長後の新しいトークンで進める
+            config.IG_ACCESS_TOKEN = new_token
 
-    if days < config.TOKEN_WARN_DAYS:
-        raise SystemExit(
-            f"アクセストークンの残りが{days}日です。延長が効いていません。"
-            "手動で取り直してください。（投稿は中止しました）")
+        if days < config.TOKEN_WARN_DAYS:
+            raise SystemExit(
+                f"アクセストークンの残りが{days}日です。延長が効いていません。"
+                "手動で取り直してください。（投稿は中止しました）")
+
+    except ig.InstagramError as e:
+        print(f"■ トークンの延長はできませんでした: {str(e)[:200]}")
+        print("　（発行から24時間経っていないトークンは延長できません。初回は正常です）")
 
     # --- 投稿先の確認 ----------------------------------------------------
-    me = ig.whoami()
+    # ここが通れば、トークンは生きている。延長できたかどうかとは別の話。
+    try:
+        me = ig.whoami()
+    except ig.InstagramError as e:
+        raise SystemExit(
+            "アクセストークンが使えません。取り直して Secrets を更新してください。\n"
+            f"（投稿は中止しました）\n{str(e)[:300]}")
     print(f"■ 投稿先: @{me.get('username')}（id: {me.get('user_id')}）")
 
     # --- イベントを取る --------------------------------------------------
