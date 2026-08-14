@@ -234,14 +234,24 @@ def event_full(ev, week):
     nf = _f(MED_F, 30)
 
     title_lines = _wrap_cap(md, ev["title"], tf, TEXT_R - TEXT_L, 2)
+
+    # ■ なぜカードの中にも日付を入れるのか（2026-08-14 追加）
+    # 日付は左上の赤いピルにも出しているが、あれは写真の上に乗っている。
+    # 写真が明るい回や、細かい模様の上に来た回は、そこだけ読み飛ばされる。
+    # 実際に9月号で「日付が入っていない」と読まれた。
+    # 場所・時間と同じ並びに置けば、目線が下に落ちたところで必ず一度は通る。
+    # ピルは残す。遠目でわかる「いつの話か」の役と、
+    # カードの中の「この行事は何日か」の役は、別のもの。
     rows = []
+    if ev.get("date"):
+        rows.append(("日付", _wrap_cap(md, ev["date"], vf, TEXT_R - 175, 1), RED))
     for label, key in (("場所", "place"), ("時間", "time"), ("規模", "scale")):
         if ev.get(key):
-            rows.append((label, _wrap_cap(md, ev[key], vf, TEXT_R - 175, 2)))
+            rows.append((label, _wrap_cap(md, ev[key], vf, TEXT_R - 175, 2), DARK))
     note_lines = _wrap_cap(md, ev["note"], nf, TEXT_R - TEXT_L, 2) if ev.get("note") else []
 
     card_h = 44 + 74 * len(title_lines) + 14
-    for _, vls in rows:
+    for _, vls, _color in rows:
         card_h += 52 * len(vls)
     if note_lines:
         card_h += 6 + 42 * len(note_lines)
@@ -276,10 +286,10 @@ def event_full(ev, week):
         d.text((TEXT_L, y), ln, font=tf, fill=DARK)
         y += 74
     y += 14
-    for label, vls in rows:
+    for label, vls, color in rows:
         d.text((TEXT_L, y), label, font=lf, fill=RED)
         for vl in vls:
-            d.text((175, y), vl, font=vf, fill=DARK)
+            d.text((175, y), vl, font=vf, fill=color)
             y += 52
     if note_lines:
         y += 6
