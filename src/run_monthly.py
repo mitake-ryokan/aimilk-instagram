@@ -171,8 +171,16 @@ def main(dry_run=False):
         })
 
     # --- 画像を作る ------------------------------------------------------
-    # 週次とファイル名がぶつからないよう、月次は m を付ける
-    stamp = f"{start.year}{start.month:02d}_monthly"
+    # 週次とファイル名がぶつからないよう、月次は _monthly を付ける。
+    #
+    # ■ なぜ実行時刻まで入れるのか（2026-08-14 追加）
+    # 画像は GitHub の公開URLに置いて、そのURLをInstagramに渡している。
+    # このURL（raw.githubusercontent.com）は数分キャッシュされる。
+    # 同じ月をもう一度流すと、中身を差し替えてもURLが同じなので、
+    # Instagramがキャッシュに残った「古い画像」を取りに行くことがある。
+    # 直したはずの投稿が直っていない、という一番わかりにくい失敗になる。
+    # フォルダ名に実行時刻を入れれば、毎回まっさらなURLになるので、この事故が起きない。
+    stamp = f"{start.year}{start.month:02d}_monthly_{dt.datetime.now():%m%d%H%M}"
     outdir = config.OUT_DIR / stamp
     paths = build_week_images(week, outdir)
     caption = build_caption(week)
