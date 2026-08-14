@@ -27,10 +27,15 @@ def build_week_images(week, outdir):
 
 
 def build_caption(week):
-    """投稿本文。免責文と出典は必ず入る（データ側から消せない）。"""
-    L = ["🐾 AIみるくの今週のおしらせ にゃ", ""]
+    """投稿本文。免責文と出典は必ず入る（データ側から消せない）。
+
+    見出しと書き出しは week 側から差し替えられる（週次と月次で共用するため）。
+    差し替えても、免責文・出典・ハッシュタグは必ず付く。ここは動かせない。
+    """
+    L = [week.get("caption_head", "🐾 AIみるくの今週のおしらせ にゃ"), ""]
     L.append("こんにちは、温泉旅館みたけの看板猫、AIみるくだにゃ。")
-    L.append("今週の箱根・仙石原のイベントを、AIみるくがまとめてお届けするにゃ！")
+    L.append(week.get("caption_lead",
+                      "今週の箱根・仙石原のイベントを、AIみるくがまとめてお届けするにゃ！"))
     L.append("")
     for ev in week.get("events", []):
         L.append(f"📅 {ev['date']}　{ev['title']}")

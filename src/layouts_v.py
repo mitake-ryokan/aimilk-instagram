@@ -147,9 +147,20 @@ def _wrap_cap(d, text, font, max_w, max_lines):
 TEXT_L, TEXT_R = 90, 770
 
 
+# 写真を使った枚に入れる注釈。
+# ■ なぜ必要か
+# 花火の記事に花火の写真が載っていれば、読む人は「その行事の写真」だと受け取る。
+# うちの写真は季節の風景（イメージ）なので、そのまま出すと誤認になる。
+# 免責文では防げない種類の誤解なので、写真そのものに注釈を焼き込む。
+# イラスト（モチーフ）の枚には入れない。イラストを実写と誤認する人はいないため。
+PHOTO_NOTE = "※写真はイメージ（季節の風景）で、イベント当日のものではありません"
+
+
 def _fill(src_path, motif, bw, bh, anchor="center"):
     """指定サイズいっぱいに画像を配置（センタークロップ）。
 
+    戻り値は (画像, 写真を使ったかどうか)。
+    「写真を使ったか」を返すのは、写真の枚にだけ注釈を入れるため。
     anchor="top" にすると上寄せで切る。人物や被写体が上にある縦写真向け。
     """
     # 写真が開けなかったら、止まらずにイラストへ落とす。
@@ -161,13 +172,14 @@ def _fill(src_path, motif, bw, bh, anchor="center"):
             im = Image.open(src_path).convert("RGB")
         except Exception as e:
             print(f"  写真が開けないためイラストに切り替え: {os.path.basename(src_path)} ({e})")
+    used_photo = im is not None
     if im is None:
         im = motifs.get(motif, bh).convert("RGB")
     sc = max(bw / im.width, bh / im.height)
     im = im.resize((max(int(im.width * sc), bw), max(int(im.height * sc), bh)), Image.LANCZOS)
     left = (im.width - bw) // 2
     top = 0 if anchor == "top" else (im.height - bh) // 2
-    return im.crop((left, top, left + bw, top + bh))
+    return im.crop((left, top, left + bw, top + bh)), used_photo
 
 
 def _scrim(img, box, strength=210, direction="up"):
@@ -237,8 +249,8 @@ def event_full(ev, week):
     CY = H - FOOT - 40 - card_h
 
     img = Image.new("RGB", (W, H), CREAM)
-    photo = _fill(ev.get("photo"), ev.get("motif") or week.get("motif", "通年"),
-                  W, H - FOOT, anchor=ev.get("anchor", "center"))
+    photo, used_photo = _fill(ev.get("photo"), ev.get("motif") or week.get("motif", "通年"),
+                              W, H - FOOT, anchor=ev.get("anchor", "center"))
     img.paste(photo, (0, 0))
     # 上下にスクリム。濃さは写真の明るさから自動で決める
     _scrim(img, (0, 0, W, 300), auto_strength(img, (0, 0, W, 200), 90, 60, 200), "up")
@@ -275,6 +287,12 @@ def event_full(ev, week):
             d.text((TEXT_L, y), ln, font=nf, fill=(96, 80, 70))
             y += 42
 
+    # 写真の枚にだけ、注釈を入れる（イラストの枚には入れない）
+    # 場所はカードのすぐ上・左寄せ。右上は日付ピル、右下はAIみるくがいるため。
+    if used_photo:
+        d.text((60, CY - 22), PHOTO_NOTE, font=_f(MED_F, 22),
+               fill=(255, 255, 255), anchor="lm")
+
     m = _milk(300)
     img.paste(m, (W - m.width - 60, H - FOOT - 60 - m.height), m)
     _footer(d)
@@ -283,8 +301,9 @@ def event_full(ev, week):
 
 def cover_full(week):
     img = Image.new("RGB", (W, H), CREAM)
-    img.paste(_fill(week.get("photo"), week.get("motif", "通年"),
-                    W, H - FOOT, anchor=week.get("anchor", "center")), (0, 0))
+    photo, used_photo = _fill(week.get("photo"), week.get("motif", "通年"),
+                              W, H - FOOT, anchor=week.get("anchor", "center"))
+    img.paste(photo, (0, 0))
     _scrim(img, (0, 0, W, H - FOOT),
            auto_strength(img, (0, H - FOOT - 460, W, H - FOOT), 78, 110, 250), "down")
     _scrim(img, (0, 0, W, 340), auto_strength(img, (0, 0, W, 200), 95, 60, 190), "up")
@@ -292,14 +311,25 @@ def cover_full(week):
 
     d.rounded_rectangle([60, 60, 460, 132], radius=36, fill=RED)
     d.text((260, 96), "温泉旅館みたけ", font=_f(BLACK_F, 38), fill=WHITE, anchor="mm")
+    if used_photo:
+        d.text((W - 60, 178), PHOTO_NOTE, font=_f(MED_F, 22),
+               fill=(255, 255, 255), anchor="rm")
+
+    # 見出しは差し替えられるようにしてある（週次と月次で同じ部品を使うため）。
+    # 下線の長さは見出しの実寸から出す。決め打ちだと「10月の箱根」で長すぎ、
+    # 「今週のおしらせ」で短すぎ、どちらかが必ずみっともなくなる。
+    t1 = week.get("title1", "AIみるくの")
+    t2 = week.get("title2", "今週のおしらせ")
+    lead = week.get("lead", "箱根・仙石原まわりの予定を\nAIみるくがまとめてお届けするにゃ")
+    tf = _f(BLACK_F, 88)
 
     y = H - FOOT - 470
-    d.text((70, y), "AIみるくの", font=_f(BLACK_F, 88), fill=WHITE)
-    d.text((70, y + 104), "今週のおしらせ", font=_f(BLACK_F, 88), fill=(255, 214, 206))
-    d.line([74, y + 226, 420, y + 226], fill=(255, 160, 148), width=8)
+    d.text((70, y), t1, font=tf, fill=WHITE)
+    d.text((70, y + 104), t2, font=tf, fill=(255, 214, 206))
+    d.line([74, y + 226, 74 + int(d.textlength(t2, font=tf)), y + 226],
+           fill=(255, 160, 148), width=8)
     d.text((70, y + 254), week.get("range", ""), font=_f(BOLD_F, 42), fill=(255, 238, 230))
-    d.text((70, y + 320), "箱根・仙石原まわりの予定を\nAIみるくがまとめてお届けするにゃ",
-           font=_f(MED_F, 32), fill=(255, 234, 226), spacing=12)
+    d.text((70, y + 320), lead, font=_f(MED_F, 32), fill=(255, 234, 226), spacing=12)
 
     m = _milk(360)
     img.paste(m, (W - m.width - 40, H - FOOT - m.height), m)
@@ -316,8 +346,8 @@ def event_split(ev, week):
             d.ellipse([xx, yy, xx + 4, yy + 4], fill=(244, 234, 213))
 
     PW = 560                              # 写真の幅。560×1272 ≒ 0.44 で縦写真に近い
-    ph = _fill(ev.get("photo"), ev.get("motif") or week.get("motif", "通年"),
-               PW, H - FOOT, anchor=ev.get("anchor", "center"))
+    ph, ph_used = _fill(ev.get("photo"), ev.get("motif") or week.get("motif", "通年"),
+                        PW, H - FOOT, anchor=ev.get("anchor", "center"))
     img.paste(ph, (0, 0))
 
     d = ImageDraw.Draw(img)
@@ -365,8 +395,9 @@ def cover_split(week):
         for xx in range(0, W, 48):
             d.ellipse([xx, yy, xx + 4, yy + 4], fill=(244, 234, 213))
     PW = 560
-    img.paste(_fill(week.get("photo"), week.get("motif", "通年"), PW, H - FOOT,
-                    anchor=week.get("anchor", "center")), (0, 0))
+    cph, _cused = _fill(week.get("photo"), week.get("motif", "通年"), PW, H - FOOT,
+                        anchor=week.get("anchor", "center"))
+    img.paste(cph, (0, 0))
     d = ImageDraw.Draw(img)
     x = PW + 46
     d.rounded_rectangle([x, 80, x + 380, 152], radius=36, fill=RED)
@@ -401,11 +432,18 @@ def closing(week):
     d.text((W // 2, 640), week.get("closing", "今週も、いい箱根を にゃ"),
            font=_f(BLACK_F, 58), fill=DARK, anchor="mm")
     d.rounded_rectangle([60, 710, 1020, 1030], radius=32, fill=WHITE, outline=RED, width=5)
-    d.text((W // 2, 770), "おことわり", font=_f(BLACK_F, 36), fill=RED, anchor="mm")
-    d.multiline_text((W // 2, 880), DISCLAIMER, font=_f(BOLD_F, 38), fill=DARK,
-                     anchor="mm", align="center", spacing=18)
-    d.text((W // 2, 990), f"出典：{week.get('sources', '箱根町ホームページ')}",
-           font=_f(MED_F, 26), fill=GRAY, anchor="mm")
+    d.text((W // 2, 758), "おことわり", font=_f(BLACK_F, 36), fill=RED, anchor="mm")
+    d.multiline_text((W // 2, 872), DISCLAIMER, font=_f(BOLD_F, 38), fill=DARK,
+                     anchor="mm", align="center", spacing=16)
+    # 出典は長くなりがち（情報源が3つ並ぶ週もある）ので、枠の幅で折り返す。
+    # 2行に収まらない分は「…」で切る。枠からのはみ出しだけは絶対にさせない。
+    src_font = _f(MED_F, 24)
+    src_lines = _wrap_cap(d, f"出典：{week.get('sources', '箱根町ホームページ')}",
+                          src_font, 860, 2)
+    sy = 990 - (len(src_lines) - 1) * 16
+    for ln in src_lines:
+        d.text((W // 2, sy), ln, font=src_font, fill=GRAY, anchor="mm")
+        sy += 32
     d.text((W // 2, 1100), "温泉旅館みたけ", font=_f(BLACK_F, 46), fill=RED, anchor="mm")
     d.text((W // 2, 1165), "箱根・仙石原　白いにごり湯の宿", font=_f(MED_F, 30), fill=GRAY, anchor="mm")
     _footer(d)

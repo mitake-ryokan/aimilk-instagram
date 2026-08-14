@@ -227,9 +227,17 @@ def main(dry_run=False):
         "events": [],
     }
     for e in picked:
+        # まだ先のイベント（告知開始日で前倒しに載せているもの）には「予告」と付ける。
+        # 付けないと「今週やっている」と読まれる。告知のつもりが誤情報になってしまう。
+        cat = e.get("区分", "")
+        try:
+            if dt.date.fromisoformat(e["開始日"]) > end:
+                cat = f"予告・{cat}" if cat else "予告"
+        except (ValueError, KeyError):
+            pass
         week["events"].append({
             "date": fmt_date(e["開始日"], e.get("終了日", "")),
-            "category": e.get("区分", ""),
+            "category": cat,
             "title": e.get("イベント名", ""),
             "place": e.get("場所", ""),
             "time": e.get("時間", ""),

@@ -69,19 +69,40 @@ def _postable(e):
     そこで「情報源が信頼できるかどうか」で分ける。
       ○                     → 投稿する（人が明示的にOKを出した）
       ×                     → 投稿しない（人が明示的に止めた）
-      保留・空欄で 確度が「高」 → 投稿する（広報はこね・公式・ウォーカープラス等。
+      確度が「高」            → 投稿する（広報はこね・公式・ウォーカープラス等。
                                 裏取り済みの情報源なので人の確認を待たない）
-      保留・空欄で 確度が中・低 → 投稿しない（箱根ナビの裏取りなし等。
+      確度が「中」「低」       → 投稿しない（箱根ナビの裏取りなし等。
                                 出したいときだけ人が ○ にする）
+      確度が空欄             → 投稿する（★2026-08-14 追加）
 
-    ふだんの3号さんの作業はゼロ。怪しい行を見かけたときだけ触ればいい。
+    ■ なぜ「確度が空欄」を投稿するのか
+    ここがこのシステムの一番おいしいところ。
+    回覧板・自治会・旅館組合青年部・公民館の掲示板——Webに出ない地域の情報は、
+    3号さんが自分の足と耳で拾ってくる。それがこの投稿の差別化点そのもの。
+    その一次情報に「確度」を書かせるのは筋が通らない。本人が見聞きしたのだから。
+
+    自動収集したものには必ず確度を入れる決まりにしてあるので、
+    「確度が空欄」＝「人が手で入れた」と見なして構わない。
+    3号さんは 日付・イベント名・場所 の3つだけ埋めれば、それで投稿に載る。
+
+    ふだんの作業はゼロ。拾った情報を放り込むときも、3列だけ。
     """
     mark = e.get("掲載可否", "").strip()
     if mark == "○":
         return True
     if mark == "×":
         return False
-    return e.get("確度", "").strip() == "高"
+    kakudo = e.get("確度", "").strip()
+    if kakudo == "":
+        return True          # 人が手で入れた一次情報
+    return kakudo == "高"
+
+
+def _date_or_none(s):
+    try:
+        return dt.date.fromisoformat((s or "").strip())
+    except (ValueError, AttributeError):
+        return None
 
 
 def pick_week(events, start: dt.date, end: dt.date):
@@ -90,36 +111,50 @@ def pick_week(events, start: dt.date, end: dt.date):
     「開始日〜終了日」が今週と少しでも重なっていれば対象にする。
     夏まつりウィークのような複数日イベントを取りこぼさないため。
 
-    ただし長期のおしらせ（例：夏休みの間ずっと有効な施設無料）は例外扱いにする。
-    素直に「重なっていたら載せる」だけにすると、同じお知らせが6週連続で
-    毎回1枚目に出てしまい、投稿が代わり映えしなくなる。
-    そこで、15日以上続くものは「始まった週」と「終わる週」だけに載せ、
-    並び順も後ろに回して、その週の新しい情報を前に出す。
+    ■ 3つの箱に分けている
+    　1. 今週おきること          … その週の主役。先頭に出す
+    　2. 告知（まだ先だが推したい）… 「告知開始日」を書いた行だけ。2番目
+    　3. 長期のおしらせ          … 期間の長いもの。後ろに回す
+
+    長期のおしらせを別扱いにするのは、素直に「重なっていたら載せる」だけだと
+    同じお知らせが6週連続で毎回1枚目に出て、投稿が代わり映えしなくなるため。
+    15日以上続くものは「始まった週」と「終わる週」だけに載せる。
+
+    ■ 「告知開始日」列（任意）について
+    申し込みが要るイベントは、開催週に1回出しても遅い。申込は締切っている。
+    スポGOMIのように主催側として推したいものは、何週も前から繰り返し出したい。
+    そこで「告知開始日」に日付を書くと、その日から開催日まで毎週の投稿に出る。
+    空欄なら今までどおり、開催週にだけ出る。書いた行だけが変わる。
     """
-    short, long_ = [], []
+    now, promo, long_ = [], [], []
     for e in events:
         if not _postable(e):
             continue
-        try:
-            s = dt.date.fromisoformat(e["開始日"])
-            t = dt.date.fromisoformat(e["終了日"] or e["開始日"])
-        except (ValueError, KeyError):
+        s = _date_or_none(e.get("開始日"))
+        t = _date_or_none(e.get("終了日")) or s
+        if s is None:
             continue                                # 日付が壊れている行は黙って飛ばす
-        if not (t >= start and s <= end):
+
+        happening = (t >= start and s <= end)
+        if happening:
+            span = (t - s).days + 1
+            if span >= LONG_EVENT_DAYS:
+                starts_here = start <= s <= end
+                ends_here = start <= t <= end
+                if starts_here or ends_here:
+                    long_.append((s, e))
+                continue                            # 途中の週には出さない
+            now.append((s, e))
             continue
 
-        span = (t - s).days + 1
-        if span >= LONG_EVENT_DAYS:
-            starts_here = start <= s <= end
-            ends_here = start <= t <= end
-            if starts_here or ends_here:
-                long_.append((s, e))
-            continue                                # 途中の週には出さない
-        short.append((s, e))
+        # まだ先のイベント。告知開始日が来ていれば「告知」として載せる
+        p = _date_or_none(e.get("告知開始日"))
+        if p is not None and p <= end and s > end:
+            promo.append((s, e))
 
-    short.sort(key=lambda x: x[0])
-    long_.sort(key=lambda x: x[0])
-    return [e for _, e in short] + [e for _, e in long_]
+    for bucket in (now, promo, long_):
+        bucket.sort(key=lambda x: x[0])
+    return [e for _, e in now] + [e for _, e in promo] + [e for _, e in long_]
 
 
 # ---------------------------------------------------------------- Drive
