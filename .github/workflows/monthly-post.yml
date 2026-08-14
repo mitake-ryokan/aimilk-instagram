@@ -1,0 +1,63 @@
+name: AIみるく 月次投稿（来月の箱根）
+
+# ■ これは何か
+# 毎月1日の夜に「来月の箱根」を投稿する仕組み。
+# 週次（今週のおしらせ）とは役割が違う。
+#   週次 … 地域の関係づくり。今週の話なので予約には直結しない
+#   月次 … 予約導線。宿泊予約が動くのは1〜2ヶ月前なので、1ヶ月前に出す
+# 毎月1日に出すと、読む人にとって「来月頭まで1ヶ月、月末まで2ヶ月」。
+# ちょうど宿を考える時期に当たる。
+
+on:
+  schedule:
+    # cron は UTC。日本時間は UTC+9。
+    # 毎月1日の日本時間20:00 に投稿したい → UTC では毎月1日の11:00
+    - cron: "0 11 1 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "投稿せず、画像とキャプションの生成だけ試す"
+        type: boolean
+        default: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # 生成した画像をリポジトリにコミットするために必要
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 日本語フォントを入れる
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk fonts-noto-cjk-extra
+
+      - name: 必要なライブラリを入れる
+        run: pip install -r requirements.txt
+
+      - name: 来月の投稿を作って出す
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          IG_APP_SECRET: ${{ secrets.IG_APP_SECRET }}
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+          GITHUB_BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python src/run_monthly.py --dry-run
+          else
+            python src/run_monthly.py
+          fi
+
+      - name: 失敗したことを分かりやすく残す
+        if: failure()
+        run: echo "::error::AIみるくの月次投稿に失敗しました。ログを確認してください。"
