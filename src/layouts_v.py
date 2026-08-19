@@ -68,12 +68,17 @@ def _find_font(*names):
         "インストールするステップが必要です。")
 
 
-BLACK_F = _find_font("NotoSansCJK-Black.ttc", "NotoSansCJK-Bold.ttc",
-                     "NotoSansCJK-Regular.ttc", "NotoSansJP-Bold.otf")
-BOLD_F = _find_font("NotoSansCJK-Bold.ttc", "NotoSansCJK-Regular.ttc",
-                    "NotoSansJP-Bold.otf")
-MED_F = _find_font("NotoSansCJK-Medium.ttc", "NotoSansCJK-Regular.ttc",
-                   "NotoSansJP-Regular.otf")
+# ■ NotoSansJP-*.otf も候補に入れている理由（2026-08-19 追加）
+# GitHubのサーバーの apt が壊れていてフォントを入れられない日があった。
+# そこでワークフロー側に「aptがダメならGitHubから直接otfをもらう」逃げ道を作った。
+# その置き場が /usr/share/fonts/truetype/noto で、ファイル名がこの JP 版になる。
+BLACK_F = _find_font("NotoSansCJK-Black.ttc", "NotoSansJP-Black.otf",
+                     "NotoSansCJK-Bold.ttc", "NotoSansJP-Bold.otf",
+                     "NotoSansCJK-Regular.ttc", "NotoSansJP-Regular.otf")
+BOLD_F = _find_font("NotoSansCJK-Bold.ttc", "NotoSansJP-Bold.otf",
+                    "NotoSansCJK-Regular.ttc", "NotoSansJP-Regular.otf")
+MED_F = _find_font("NotoSansCJK-Medium.ttc", "NotoSansJP-Medium.otf",
+                   "NotoSansCJK-Regular.ttc", "NotoSansJP-Regular.otf")
 
 _cache = {}
 
