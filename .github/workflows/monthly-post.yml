@@ -33,10 +33,21 @@ jobs:
         with:
           python-version: "3.11"
 
+      # ■ なぜ失敗しても止めないのか（2026-08-19 追加）
+      # GitHubのサーバーが使うaptの配布元（azure.archive.ubuntu.com）が
+      # 応答しないことがあり、ここで何分もハングして投稿ごと落ちた。
+      # フォントが入らなかった場合は、このあとのPython側が
+      # 「日本語フォントが見つかりません」とはっきり落としてくれる。
+      # だからここは早めに諦めて先へ進んでよい。黙って変な画像が出る心配はない。
       - name: 日本語フォントを入れる
+        continue-on-error: true
+        timeout-minutes: 4
         run: |
-          sudo apt-get update
-          sudo apt-get install -y fonts-noto-cjk fonts-noto-cjk-extra
+          sudo apt-get update -o Acquire::Retries=1 \
+            -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 || true
+          sudo apt-get install -y --no-install-recommends \
+            fonts-noto-cjk fonts-noto-cjk-extra || true
+          fc-list | grep -i "noto sans cjk" | head -3 || true
 
       - name: 必要なライブラリを入れる
         run: pip install -r requirements.txt
