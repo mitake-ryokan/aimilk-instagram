@@ -147,6 +147,29 @@ def _wrap_cap(d, text, font, max_w, max_lines):
     return lines
 
 
+# ■ タイトルは「切らずに、縮めて」入れる（2026-08-20 追加）
+# 備考が切れても投稿は成立する。だがタイトルが切れると
+# 「箱根の魅力を伝えるスト／ーリーづくりワークシ…」のように、
+# 何の話なのか分からない投稿になる。実際に8/20の投稿でそうなった。
+# なので、まず文字を小さくして2行に収める。デザインは少し変わるが、意味は残る。
+# どうしても入らないときだけ切り、そのときはログに警告を出す。
+# 「黙って壊れた投稿が出る」のだけは避ける。
+TITLE_SIZES = (58, 52, 46, 40)
+
+
+def _fit_title(md, text, max_lines=2):
+    """タイトルが max_lines に収まる、いちばん大きい文字サイズを選ぶ。"""
+    for size in TITLE_SIZES:
+        f = _f(BLACK_F, size)
+        lines = _wrap(md, text, f, TEXT_R - TEXT_L)
+        if len(lines) <= max_lines:
+            return f, lines
+    f = _f(BLACK_F, TITLE_SIZES[-1])
+    print(f"::warning::イベント名が長すぎて画像に収まりません。"
+          f"シートで短くしてください: {text}")
+    return f, _wrap_cap(md, text, f, TEXT_R - TEXT_L, max_lines)
+
+
 # AIみるくは画像の右下に立つので、文字はここより右に置かない。
 # （高さ300で貼ると幅238。右端から60余白なので x=782 から先はAIみるくの領域）
 TEXT_L, TEXT_R = 90, 770
@@ -233,12 +256,12 @@ def event_full(ev, week):
     # 先に高さを測っておかないと、備考が長い回にカードから文字があふれる。
     # 「文字の量に合わせてカードを伸ばす」ほうが、事故が起きない。
     md = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-    tf = _f(BLACK_F, 58)
     lf = _f(BLACK_F, 28)
     vf = _f(BOLD_F, 34)
     nf = _f(MED_F, 30)
 
-    title_lines = _wrap_cap(md, ev["title"], tf, TEXT_R - TEXT_L, 2)
+    tf, title_lines = _fit_title(md, ev["title"])
+    title_lh = int(tf.size * 1.28)          # 行の高さは文字サイズに合わせて縮める
 
     # ■ なぜカードの中にも日付を入れるのか（2026-08-14 追加）
     # 日付は左上の赤いピルにも出しているが、あれは写真の上に乗っている。
@@ -255,7 +278,7 @@ def event_full(ev, week):
             rows.append((label, _wrap_cap(md, ev[key], vf, TEXT_R - 175, 2), DARK))
     note_lines = _wrap_cap(md, ev["note"], nf, TEXT_R - TEXT_L, 2) if ev.get("note") else []
 
-    card_h = 44 + 74 * len(title_lines) + 14
+    card_h = 44 + title_lh * len(title_lines) + 14
     for _, vls, _color in rows:
         card_h += 52 * len(vls)
     if note_lines:
@@ -289,7 +312,7 @@ def event_full(ev, week):
     y = CY + 44
     for ln in title_lines:
         d.text((TEXT_L, y), ln, font=tf, fill=DARK)
-        y += 74
+        y += title_lh
     y += 14
     for label, vls, color in rows:
         d.text((TEXT_L, y), label, font=lf, fill=RED)
