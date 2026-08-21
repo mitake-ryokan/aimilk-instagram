@@ -33,7 +33,7 @@ import google_client as gc
 import instagram as ig
 from builder import build_week_images, build_caption
 from run_weekly import (fmt_date, season_of, fetch_photo, save_secret,
-                        git_push, wait_urls_live)
+                        git_push, wait_urls_live, soften_if_uncertain)
 
 
 def next_month(today=None):
@@ -87,7 +87,9 @@ def pick_month(events, start: dt.date, end: dt.date):
             continue
         picked.append(e)
 
-    picked.sort(key=lambda e: (CATEGORY_ORDER.get(e.get("区分", ""), 9),
+    # 日付があいまいな行は後ろに回す（週次と同じ考え方）
+    picked.sort(key=lambda e: (gc.is_uncertain(e),
+                               CATEGORY_ORDER.get(e.get("区分", ""), 9),
                                e.get("開始日", "")))
     return picked
 
@@ -158,14 +160,16 @@ def main(dry_run=False):
         "events": [],
     }
     for e in picked:
+        date_label, scale, note = soften_if_uncertain(
+            e, fmt_date(e["開始日"], e.get("終了日", "")))
         week["events"].append({
-            "date": fmt_date(e["開始日"], e.get("終了日", "")),
+            "date": date_label,
             "category": e.get("区分", ""),
             "title": e.get("イベント名", ""),
             "place": e.get("場所", ""),
             "time": e.get("時間", ""),
-            "scale": e.get("規模・備考", ""),
-            "note": e.get("みるくコメント", ""),
+            "scale": scale,
+            "note": note,
             "motif": e.get("モチーフ", "") or season,
             "photo": str(fetch_photo(season, used, workdir) or ""),
         })
