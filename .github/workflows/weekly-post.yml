@@ -117,12 +117,11 @@ jobs:
       - name: 必要なライブラリを入れる
         run: pip install -r requirements.txt
 
+      # ■ ここは dry_run を見ていない（2026-08-21）
+      # 上の dry_run は「Instagramに出さずに試す」ためのつまみ。
+      # こちらはそもそもInstagramに出さないので、止める理由がない。
+      # 新しいPDFが無い週は何も起きず、Issueも立たない。
       - name: 町のPDFを見に行く
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            python src/town_docs.py --dry-run
-          else
-            python src/town_docs.py
-          fi
+        run: python src/town_docs.py
