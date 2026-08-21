@@ -74,7 +74,21 @@ def _get(url, binary=False):
         try:
             r = requests.get(url, headers=UA, timeout=40)
             r.raise_for_status()
-            return r.content if binary else r.text
+            if binary:
+                return r.content
+            # ■ 文字化けを防ぐ（2026-08-21 追加）
+            # 町のサイトはHTTPヘッダに「文字の種類」を書いていない。
+            # requests はそれが無いとラテン文字だと決めつけるので、日本語が化ける。
+            # 実際、初回の実行で見出しが「å..è¦§8æ..10æ.¥」になった。
+            # 見た目が汚いだけなら我慢もできるが、
+            # 広報はこねは「広報はこね」という文字でリンクを探しているので、
+            # 化けると1件も見つからない。回覧だけ拾えて広報は静かに落ちる、
+            # といういちばん気づきにくい失敗になっていた。
+            # HTMLの冒頭に書いてある宣言を読んで、そのとおりに読み直す。
+            head = r.content[:2048].decode("ascii", "ignore").lower()
+            m = re.search(r"charset=[\"\']?([\w-]+)", head)
+            r.encoding = (m.group(1) if m else None) or r.apparent_encoding or "utf-8"
+            return r.text
         except requests.RequestException as e:
             last = e
     raise RuntimeError(f"取得できませんでした: {url}\n{last}")
