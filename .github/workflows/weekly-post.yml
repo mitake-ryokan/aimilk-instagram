@@ -91,3 +91,38 @@ jobs:
       - name: 失敗したことを分かりやすく残す
         if: failure()
         run: echo "::error::AIみるくの週次投稿に失敗しました。ログを確認してください。"
+
+  # ■ 町のPDFを見に行く（2026-08-21 追加）
+  # 投稿とは別の仕事なので、別のjobにしてある。ここで何が起きても投稿は落ちない。
+  # 時計は増やしていない。上の投稿と同じ木曜のcronで一緒に動く。
+  #
+  # needs: post を付けて、投稿が終わってから動かしている。
+  # 同じリポジトリに2つが同時にコミットしにいくと、ぶつかるため。
+  # if: always() にしてあるので、投稿が失敗した週でもこちらは動く。
+  town-docs:
+    needs: post
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # 読んだ記録（state/）をコミットするため
+      issues: write       # 見つけたことをIssueで知らせるため
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 必要なライブラリを入れる
+        run: pip install -r requirements.txt
+
+      - name: 町のPDFを見に行く
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python src/town_docs.py --dry-run
+          else
+            python src/town_docs.py
+          fi
