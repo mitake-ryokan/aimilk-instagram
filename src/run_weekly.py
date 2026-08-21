@@ -83,6 +83,49 @@ def soften_if_uncertain(e, date_label):
     return vague_date(e.get("開始日", "")), "", UNCERTAIN_NOTE
 
 
+# ■ 表紙の見出しを「中身」に合わせるための道具（2026-08-21 追加）
+# 「今週のおしらせ　2026.8.20 〜 8.26」と大きく出しているのに、
+# 中に入っているのは9/6と9/8のおしらせだけ、という投稿が出てしまった。
+# 告知開始日で先の行事を前倒しに載せているので、
+# 「今週なにも無いが、先の予告はある」という週は普通に起きる。
+# 日付を出す以上、それは中身と合っていないといけない。
+# 合わないときは、見出しのほうを「これからのおしらせ」に変える。
+
+
+def happening_within(e, start, end):
+    """この行事は start〜end の間にかかっているか（今週ぶんかどうかの判定）。"""
+    try:
+        s = dt.date.fromisoformat(e["開始日"])
+        t = dt.date.fromisoformat(e.get("終了日") or e["開始日"])
+    except (ValueError, KeyError, TypeError):
+        return False
+    return s <= end and t >= start
+
+
+def span_label(events):
+    """並んだ行事の「いちばん早い日 〜 いちばん遅い日」を表紙用の文字にする。
+
+    ■ 日付をぼかしている行を数に入れない理由
+    中では「10月中旬ごろ」としか言っていないのに、
+    表紙で「〜 10.15」と断定してしまっては、ぼかした意味がなくなる。
+    確かな日付だけで範囲を作り、1件も無ければ範囲は出さない（空にする）。
+    """
+    days = []
+    for e in events:
+        if gc.is_uncertain(e):
+            continue
+        try:
+            days.append(dt.date.fromisoformat(e["開始日"]))
+        except (ValueError, KeyError, TypeError):
+            pass
+    if not days:
+        return ""
+    a, b = min(days), max(days)
+    if a == b:
+        return f"{a.year}.{a.month}.{a.day}"
+    return f"{a.year}.{a.month}.{a.day} 〜 {b.month}.{b.day}"
+
+
 def season_of(d: dt.date):
     m = d.month
     if m in (3, 4, 5):
@@ -251,13 +294,42 @@ def main(dry_run=False):
     used = set()
     season = season_of(today)
 
+    # 今週ぶんが1件でもあれば「今週のおしらせ」。1件も無ければ「これからのおしらせ」。
+    # 見出し・日付の範囲・キャプションの書き出しを、まとめて切り替える。
+    # ここを別々に直すと、表紙は直ったのに本文が「今週の」のまま、という
+    # いちばん気づきにくいズレが残る。だから1か所で決める。
+    has_now = any(happening_within(e, start, end) for e in picked)
+    if has_now:
+        head = {
+            "title2": "今週のおしらせ",
+            "range": f"{start.year}.{start.month}.{start.day} 〜 {end.month}.{end.day}",
+            "lead": "箱根・仙石原まわりの予定を\nAIみるくがまとめてお届けするにゃ",
+            "closing": "今週も、いい箱根を にゃ",
+            "caption_head": "🐾 AIみるくの今週のおしらせ にゃ",
+            "caption_lead": "今週の箱根・仙石原のイベントを、"
+                            "AIみるくがまとめてお届けするにゃ！",
+        }
+    else:
+        head = {
+            "title2": "これからのおしらせ",
+            "range": span_label(picked),
+            "lead": "この先の箱根・仙石原の予定を\nAIみるくが先まわりでお届けするにゃ",
+            "closing": "その日は、箱根で会おうにゃ",
+            "caption_head": "🐾 AIみるくの これからのおしらせ にゃ",
+            "caption_lead": "今週の箱根はしずかだにゃ。\n"
+                            "そのぶん、この先に控えている予定を"
+                            "先まわりでお届けするにゃ！",
+        }
+    print(f"■ 表紙: {head['title2']}（{head['range'] or '日付なし'}）")
+
     week = {
-        "range": f"{start.year}.{start.month}.{start.day} 〜 {end.month}.{end.day}",
         "motif": season,
+        "title1": "AIみるくの",
         "sources": "、".join(sorted({e.get("情報源", "") for e in picked if e.get("情報源")}))
                    or "箱根町ホームページ",
         "photo": str(fetch_photo(season, used, workdir) or ""),
         "events": [],
+        **head,
     }
     for e in picked:
         # まだ先のイベント（告知開始日で前倒しに載せているもの）には「予告」と付ける。
