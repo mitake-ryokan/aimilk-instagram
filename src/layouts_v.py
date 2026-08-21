@@ -359,15 +359,33 @@ def cover_full(week):
     t1 = week.get("title1", "AIみるくの")
     t2 = week.get("title2", "今週のおしらせ")
     lead = week.get("lead", "箱根・仙石原まわりの予定を\nAIみるくがまとめてお届けするにゃ")
-    tf = _f(BLACK_F, 88)
 
-    y = H - FOOT - 470
+    # ■ 表紙の見出しも「切らずに、縮めて」入れる（2026-08-21 追加）
+    # 右下にはAIみるくが座っている。88ptのままだと7文字までしか入らない。
+    # 「これからのおしらせ」（9文字）を入れたら、最後の「せ」が猫の後ろに隠れた。
+    # 画像には枠がないので、はみ出しても切れずに「消える」。気づきにくい。
+    # なので入る大きさまで自動で落とす。行の間隔も文字サイズから出すので、
+    # 縮んでも詰まって見えない。88のときは今までとまったく同じ見た目になる。
+    COVER_W = 700                       # 70 〜 770。それより右はAIみるくの居場所
+    size = 88
+    for cand in (88, 80, 72, 64):
+        size = cand
+        f = _f(BLACK_F, cand)
+        if max(d.textlength(t1, font=f), d.textlength(t2, font=f)) <= COVER_W:
+            break
+    tf = _f(BLACK_F, size)
+
+    # 縮めたぶん下に余白が空くので、少しだけ下げて位置を戻す
+    y = H - FOOT - 470 + int((88 - size) * 1.2)
+    y2 = y + round(size * 1.18)         # 2行目（88のとき +104）
     d.text((70, y), t1, font=tf, fill=WHITE)
-    d.text((70, y + 104), t2, font=tf, fill=(255, 214, 206))
-    d.line([74, y + 226, 74 + int(d.textlength(t2, font=tf)), y + 226],
-           fill=(255, 160, 148), width=8)
-    d.text((70, y + 254), week.get("range", ""), font=_f(BOLD_F, 42), fill=(255, 238, 230))
-    d.text((70, y + 320), lead, font=_f(MED_F, 32), fill=(255, 234, 226), spacing=12)
+    d.text((70, y2), t2, font=tf, fill=(255, 214, 206))
+    d.line([74, y2 + round(size * 1.39), 74 + int(d.textlength(t2, font=tf)),
+            y2 + round(size * 1.39)], fill=(255, 160, 148), width=8)
+    d.text((70, y2 + round(size * 1.70)), week.get("range", ""),
+           font=_f(BOLD_F, 42), fill=(255, 238, 230))
+    d.text((70, y2 + round(size * 2.45)), lead,
+           font=_f(MED_F, 32), fill=(255, 234, 226), spacing=12)
 
     m = _milk(360)
     img.paste(m, (W - m.width - 40, H - FOOT - m.height), m)
