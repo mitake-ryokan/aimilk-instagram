@@ -50,6 +50,39 @@ def fmt_date(iso_start, iso_end):
     return label
 
 
+# 日付を確かめきれていない行に添える、AIみるくの一言。
+# ■ ここが肝
+# 「日程要確認」と書くのは、書いた側の都合。読む人には何も起きない。
+# 「知ってる人は教えてにゃ」と聞けば、知っている人が答えてくれる。
+# 箱根の地域情報はWebに出ないぶん、人の頭の中にある。そこへ取りに行く。
+UNCERTAIN_NOTE = "箱根あるある、日にちがまだ分からないにゃ。知ってる人は教えてにゃ"
+
+
+def vague_date(iso_start):
+    """「2026-10-15」→「10月中旬ごろ」。日にちを断定せずに時期だけ伝える。"""
+    try:
+        d = dt.date.fromisoformat((iso_start or "").strip())
+    except (ValueError, TypeError):
+        return ""
+    part = "上旬" if d.day <= 10 else ("中旬" if d.day <= 20 else "下旬")
+    return f"{d.month}月{part}ごろ"
+
+
+def soften_if_uncertain(e, date_label):
+    """日付があいまいな行を「断定しない形」に直す。
+
+    戻り値は (日付の表示, 規模・備考, みるくコメント)。
+
+    ■ 規模・備考を空にしている理由
+    あいまいな行の備考欄には「箱根ナビ由来。日付の裏取り未了」のような
+    こちらの内部メモが入っている。運用のための覚え書きであって、
+    お客様に見せる文ではない。そのまま画像に焼くと、ただの不親切になる。
+    """
+    if not gc.is_uncertain(e):
+        return date_label, e.get("規模・備考", ""), e.get("みるくコメント", "")
+    return vague_date(e.get("開始日", "")), "", UNCERTAIN_NOTE
+
+
 def season_of(d: dt.date):
     m = d.month
     if m in (3, 4, 5):
@@ -235,14 +268,16 @@ def main(dry_run=False):
                 cat = f"予告・{cat}" if cat else "予告"
         except (ValueError, KeyError):
             pass
+        date_label, scale, note = soften_if_uncertain(
+            e, fmt_date(e["開始日"], e.get("終了日", "")))
         week["events"].append({
-            "date": fmt_date(e["開始日"], e.get("終了日", "")),
+            "date": date_label,
             "category": cat,
             "title": e.get("イベント名", ""),
             "place": e.get("場所", ""),
             "time": e.get("時間", ""),
-            "scale": e.get("規模・備考", ""),
-            "note": e.get("みるくコメント", ""),
+            "scale": scale,
+            "note": note,
             "motif": e.get("モチーフ", "") or season,
             "photo": str(fetch_photo(season, used, workdir) or ""),
         })
