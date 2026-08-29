@@ -81,6 +81,19 @@ jobs:
             python sasuke/run_sasuke.py
           fi
 
+      # ■ 生成したカードを成果物として残す（投稿前の見た目確認用）
+      # dry_run でも本番でも、public/sasuke/ に描いたJPEGをそのまま拾って上げる。
+      # dry_run はここまでで投稿せずに終わるので、Actions画面から絵だけ確認できる。
+      # if: always() にして、あとの手順が失敗しても描けたカードは受け取れるようにする。
+      - name: 生成したカードを成果物として残す（確認用）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sasuke-card
+          path: public/sasuke/**/*.jpg
+          if-no-files-found: ignore
+          retention-days: 7
+
       # 失敗したらGitHubから3号さんにメールが届く（標準機能）。
       - name: 失敗したことを分かりやすく残す
         if: failure()
