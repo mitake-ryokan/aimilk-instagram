@@ -94,6 +94,26 @@ def pick_month(events, start: dt.date, end: dt.date):
     return picked
 
 
+def in_month_key(e, start):
+    """その月の中で「いつの話か」を返す。並べ替え専用。
+
+    ■ 開始日そのままで並べてはいけない（2026-08-29 追加）
+    すすき草原の臨時駐車場は9/1から11/30まで、担い手養成塾は9/8から続く。
+    開始日で並べると、10月号なのに9月始まりの行が必ず先頭に立つ。
+    読む人が知りたいのは「10月のいつの話か」なので、
+    月をまたいでいるものは、その月の1日から始まっているものとして扱う。
+
+    ■ 同じ日なら、長く続くものを後ろに回す
+    「10月1日にこれがある」と「10月ずっとやっている」は別の話。
+    日限りの行事を先に見せたほうが、予定を立てる人には親切。
+    """
+    try:
+        s = dt.date.fromisoformat(e["開始日"])
+    except (ValueError, KeyError, TypeError):
+        return (dt.date.max, 1)
+    return (max(s, start), 1 if s < start else 0)
+
+
 def main(dry_run=False):
     config.check_required()
     today = dt.date.today()
@@ -136,6 +156,17 @@ def main(dry_run=False):
         return 0
 
     picked = picked[:config.MAX_EVENTS]
+
+    # ■ 選ぶ順番と、並べる順番を分ける（2026-08-29 追加）
+    # ここまでは「大きい行事から」で選んできた。月次は予約導線なので、
+    # 月末の大きな祭りが枠から落ちるのは避けたいからだ。
+    # だが並びまで区分順にすると、10/1 → 10/22 → 10/24 → 10/10 のように
+    # 日付が飛んで、カレンダーとして読めない投稿になる。実際そうなっていた。
+    # 「来月の箱根」はそもそもカレンダーなので、並びは日付順に戻す。
+    picked.sort(key=lambda e: in_month_key(e, start))
+    print("■ 並べ替え後（この順番で投稿します）")
+    for e in picked:
+        print(f"   - {e['開始日']} [{e.get('区分','')}] {e['イベント名']}")
 
     # --- 写真をそろえる --------------------------------------------------
     workdir = config.ROOT / "work"
