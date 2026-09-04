@@ -19,7 +19,7 @@ import os
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 HERE = Path(__file__).resolve().parent
 
@@ -211,15 +211,31 @@ def _round_face(diameter):
     return im
 
 
-def _logo(height):
-    """MITAKE CATS ロゴを高さ height に合わせて返す。"""
+def _logo(height, tint=GREEN):
+    """MITAKE CATS ロゴを高さ height に合わせて返す。
+
+    ■ 白背景を透過させ、黒い線を tint 色に着色する（2026-09-04 修正）
+    素材は「白地に黒線」のPNG。そのまま貼ると、ロゴのまわりに白い四角が
+    カードに乗ってしまう。そこで明るさだけの画像にして輝度を反転し、
+    「線の濃さ」をそのまま不透明度（アルファ）に使う。色は tint に置き換える。
+    こうすると背景（白）は透明になり、線だけが指定色で残る。
+    先方の参照実装 make_sasuke_card.py の load_logo と同じ考え方。
+    """
     if not LOGO_PNG.exists():
         raise FileNotFoundError(
             f"MITAKE CATS ロゴが見つかりません: {LOGO_PNG}\n"
             "sasuke/assets/mitakecats_logo.png を置いてください。")
-    im = Image.open(LOGO_PNG).convert("RGBA")
-    w = int(im.width * height / im.height)
-    return im.resize((w, height), Image.LANCZOS)
+    im = Image.open(LOGO_PNG).convert("L")      # 明るさだけにする
+    inv = ImageOps.invert(im)                   # 線=明るい / 背景=暗い
+    bbox = inv.getbbox()                        # まわりの白い余白を詰める
+    if bbox:
+        im = im.crop(bbox)
+    w = max(1, int(im.width * height / im.height))
+    im = im.resize((w, height), Image.LANCZOS)
+    alpha = im.point(lambda p: 255 - p)         # 黒い線ほど不透明にする
+    out = Image.new("RGBA", im.size, tuple(tint) + (0,))
+    out.putalpha(alpha)
+    return out
 
 
 def _fit_game(d, name, max_w, max_lines=3):
