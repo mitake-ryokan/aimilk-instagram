@@ -14,6 +14,14 @@ on:
     # cron は UTC。日本時間は UTC+9。
     # 日本時間の土曜20:00 に投稿したい → UTC では土曜11:00
     - cron: "0 11 * * 6"
+  # ▼▼▼ 一時的な確認用トリガー（カード確認が済んだら消す）▼▼▼
+  # このブランチにpushされたら1回走る。pushで動いたときは必ずdry_run扱いにするので、
+  # 実際にInstagramへ投稿されることはない。カードの絵だけ確認する目的。
+  push:
+    branches:
+      - feature/sasuke-weekly
+  # ▲▲▲ ここまで一時的 ▲▲▲
+
   workflow_dispatch:      # 画面のボタンから手動でも実行できる
     inputs:
       dry_run:
@@ -75,7 +83,10 @@ jobs:
           GITHUB_REPO: ${{ github.event.repository.name }}
           GITHUB_BRANCH: ${{ github.ref_name }}
         run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          DRY="${{ inputs.dry_run }}"
+          # pushで動いたときは、手が滑っても投稿しないよう必ずdry_runに倒す（一時的）
+          if [ "${{ github.event_name }}" = "push" ]; then DRY="true"; fi
+          if [ "$DRY" = "true" ]; then
             python sasuke/run_sasuke.py --dry-run
           else
             python sasuke/run_sasuke.py
