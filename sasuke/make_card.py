@@ -323,14 +323,20 @@ def _fit_game(d, name, max_w):
 
 
 # ---------------------------------------------------------------- 本体
-def render(vol, game, serif, out_path, csv_path=None):
-    """カードを1枚描いて out_path に保存する。表示に使ったゲーム名を返す。"""
+def render(vol, game, serif, out_path, csv_path=None, display=None):
+    """カードを1枚描いて out_path に保存する。表示に使ったゲーム名を返す。
+
+    display を渡すと、カードに大きく出す名前だけを差し替えられる。
+    CSVには版まで入った名前（「カタン：カプコン版」）で載っているが、
+    見出しとしては「カタン」と出したい、というときに使う。
+    スペックの引き当てには game（CSVの名前）を使うので、数字はずれない。
+    """
     row = lookup(game, csv_path)
     if row is None:
         raise SystemExit(
             f"ゲーム『{game}』が {GAMES_CSV.name} に見つかりません。"
             "queue.json のゲーム名を、CSVに実在する名前にしてください。")
-    display_name = _first_alias(row.get(COL_NAME)) or game
+    display_name = (display or "").strip() or _first_alias(row.get(COL_NAME)) or game
     specs = specs_of(row)
 
     img = Image.new("RGB", (W, H), CREAM)
@@ -410,8 +416,9 @@ def _cli(argv=None):
     ap.add_argument("--serif", default="", help="ひとこと（下の帯に入る）")
     ap.add_argument("--out", required=True, help="出力先（.jpg）")
     ap.add_argument("--csv", default=None, help="CSVの場所（省略時 sasuke/games.csv）")
+    ap.add_argument("--display", default=None, help="カードに出す名前（省略時はCSVの名前）")
     args = ap.parse_args(argv)
-    name = render(args.vol, args.game, args.serif, args.out, args.csv)
+    name = render(args.vol, args.game, args.serif, args.out, args.csv, args.display)
     print(f"■ 描きました: vol.{args.vol:02d} 『{name}』 -> {args.out}")
     return 0
 

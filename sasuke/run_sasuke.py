@@ -176,7 +176,10 @@ def main(dry_run=False):
     outdir.mkdir(parents=True, exist_ok=True)
     card_path = outdir / "card.jpg"
     closing_path = outdir / "closing.jpg"
-    name = make_card.render(vol, game, serif, card_path)
+    # display は任意。入れておくと、カードの見出しだけ短い名前にできる
+    # （例: game="カタン：カプコン版" / display="カタン"）。
+    name = make_card.render(vol, game, serif, card_path,
+                            display=entry.get("display"))
     shutil.copyfile(CLOSING_SRC, closing_path)      # 締めロゴをそのまま公開位置へ
     print(f"■ カードを描きました: 『{name}』 -> {card_path}")
 
