@@ -1,0 +1,100 @@
+name: サスケのボドゲ棚 週次投稿
+
+# ■ これは何か
+# 毎週土曜の夜に「サスケのボドゲ棚」を1本投稿する仕組み。
+# AIみるく（木曜）とは役割もキャラも別なので、ワークフローごと分けてある。
+# 片方が失敗しても、もう片方は巻き込まれない。
+#
+# ■ トークンは新設しない
+# みるくと同じ IG_ACCESS_TOKEN を延長して使い回す。新しい鍵は作らない。
+# 延長した新トークンは、みるくと同じ Secrets（IG_ACCESS_TOKEN）に書き戻す。
+
+on:
+  schedule:
+    # cron は UTC。日本時間は UTC+9。
+    # 日本時間の土曜20:00 に投稿したい → UTC では土曜11:00
+    - cron: "0 11 * * 6"
+  workflow_dispatch:      # 画面のボタンから手動でも実行できる
+    inputs:
+      dry_run:
+        description: "投稿せず、カード生成とキャプションの確認だけ試す"
+        type: boolean
+        default: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # 生成した画像と投稿記録をリポジトリにコミットするため
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ■ フォント（みるくと同じ2段構え）
+      # apt が応答しない日があるので、早めに諦めて先へ進む。
+      - name: 日本語フォントを入れる
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          sudo apt-get update -o Acquire::Retries=1 \
+            -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 || true
+          sudo apt-get install -y --no-install-recommends \
+            fonts-noto-cjk fonts-noto-cjk-extra || true
+          fc-list | grep -i "noto sans cjk" | head -3 || true
+
+      # ■ apt がダメだったときは GitHub から直接もらう（みるくと同じ逃げ道）
+      - name: フォントが入らなかったときは直接もらう
+        run: |
+          set -e
+          if fc-list 2>/dev/null | grep -qi "noto sans cjk"; then
+            echo "aptで入ったのでスキップします"
+            exit 0
+          fi
+          echo "aptで入らなかったので、GitHubから直接もらいます"
+          sudo mkdir -p /usr/share/fonts/truetype/noto
+          BASE=https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/SubsetOTF/JP
+          for f in NotoSansJP-Black.otf NotoSansJP-Bold.otf NotoSansJP-Medium.otf NotoSansJP-Regular.otf; do
+            sudo curl -fsSL --retry 3 -o "/usr/share/fonts/truetype/noto/$f" "$BASE/$f"
+          done
+          ls -l /usr/share/fonts/truetype/noto/
+
+      - name: 必要なライブラリを入れる
+        run: pip install -r requirements.txt
+
+      - name: 投稿を作って出す
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          # GH_PAT を入れておくと、延長したトークンを自動で Secrets に書き戻す
+          GH_PAT: ${{ secrets.GH_PAT }}
+          IG_APP_SECRET: ${{ secrets.IG_APP_SECRET }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+          GITHUB_BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python sasuke/run_sasuke.py --dry-run
+          else
+            python sasuke/run_sasuke.py
+          fi
+
+      # ■ 生成したカードを成果物として残す（投稿前の見た目確認用）
+      # dry_run でも本番でも、public/sasuke/ に描いたJPEGをそのまま拾って上げる。
+      # dry_run はここまでで投稿せずに終わるので、Actions画面から絵だけ確認できる。
+      # if: always() にして、あとの手順が失敗しても描けたカードは受け取れるようにする。
+      - name: 生成したカードを成果物として残す（確認用）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sasuke-card
+          path: public/sasuke/**/*.jpg
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # 失敗したらGitHubから3号さんにメールが届く（標準機能）。
+      - name: 失敗したことを分かりやすく残す
+        if: failure()
+        run: echo "::error::サスケのボドゲ棚の週次投稿に失敗しました。ログを確認してください。"
