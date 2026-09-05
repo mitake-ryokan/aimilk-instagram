@@ -199,8 +199,15 @@ def find_photo(vol, game):
     return None
 
 
-def _cover(im, w, h):
+# 縦長の写真を横長の枠に入れるとき、上下のどこを残すか。
+# 0.0 なら上端、1.0 なら下端、0.5 で中央。箱によってタイトルの高さが違うので、
+# queue.json の "crop" で1回ずつ上書きできる。
+CROP_DEFAULT = 0.35
+
+
+def _cover(im, w, h, crop=None):
     """はみ出す分を切り落として、w×h をぴったり埋める（CSSの object-fit: cover）。"""
+    pos = CROP_DEFAULT if crop is None else max(0.0, min(1.0, float(crop)))
     src_r = im.width / im.height
     dst_r = w / h
     if src_r > dst_r:                      # 横に長い → 左右を切る
@@ -211,7 +218,7 @@ def _cover(im, w, h):
     else:                                  # 縦に長い → 上下を切る
         nw = im.width
         nh = int(nw / dst_r)
-        top = int((im.height - nh) * 0.4)   # 気持ち上寄り。料理も卓上も上に主役が来る
+        top = int((im.height - nh) * pos)
         im = im.crop((0, top, nw, top + nh))
     return im.resize((w, h), Image.LANCZOS)
 
@@ -270,11 +277,11 @@ def _sasuke_cutout(width):
     return im.resize((width, h), Image.LANCZOS)
 
 
-def _photo_panel(vol, game):
+def _photo_panel(vol, game, crop=None):
     """上部に置く 1080×PHOTO_H の絵を作る。写真があれば写真、無ければ代替パネル。"""
     p = find_photo(vol, game)
     if p:
-        return _cover(Image.open(p).convert("RGB"), W, PHOTO_H)
+        return _cover(Image.open(p).convert("RGB"), W, PHOTO_H, crop)
 
     # --- 写真が無い週の代替パネル -------------------------------------
     # 深緑の地に、うすい菱形の連続模様とロゴ。「写真の撮り忘れ」ではなく
@@ -323,13 +330,19 @@ def _fit_game(d, name, max_w):
 
 
 # ---------------------------------------------------------------- 本体
-def render(vol, game, serif, out_path, csv_path=None, display=None):
+def render(vol, game, serif, out_path, csv_path=None, display=None,
+           crop=None, origin=None):
     """カードを1枚描いて out_path に保存する。表示に使ったゲーム名を返す。
 
     display を渡すと、カードに大きく出す名前だけを差し替えられる。
     CSVには版まで入った名前（「カタン：カプコン版」）で載っているが、
     見出しとしては「カタン」と出したい、というときに使う。
     スペックの引き当てには game（CSVの名前）を使うので、数字はずれない。
+
+    crop は写真の切り取り位置（0.0=上端 / 0.5=中央 / 1.0=下端）。省略時 0.35。
+
+    origin は本国版の題名（"Die Siedler von Catan" など）。vol表記と同じ行の
+    右端に小さく入る。棚の箱と見比べたときに、同じ物だと分かるようにするため。
     """
     row = lookup(game, csv_path)
     if row is None:
@@ -340,7 +353,7 @@ def render(vol, game, serif, out_path, csv_path=None, display=None):
     specs = specs_of(row)
 
     img = Image.new("RGB", (W, H), CREAM)
-    img.paste(_photo_panel(vol, display_name), (0, 0))
+    img.paste(_photo_panel(vol, display_name, crop), (0, 0))
 
     # 写真の上端を少しだけ暗くする。白いプレートの文字を確実に読ませるため。
     scrim = _vgrad(W, 300, (14, 26, 20), 140, 0)
@@ -368,6 +381,10 @@ def render(vol, game, serif, out_path, csv_path=None, display=None):
     y = PHOTO_H + 56
 
     d.text((x, y), f"vol.{int(vol):02d}", font=_f(BOLD_F, 40), fill=GOLD)
+    if origin:
+        of = _f(MED_F, 28)
+        ow = d.textlength(origin, font=of)
+        d.text((W - MARGIN - ow, y + 10), origin, font=of, fill=GRAY)
     y += 62
 
     gf, glines, gsize = _fit_game(d, display_name, text_w)
@@ -417,8 +434,12 @@ def _cli(argv=None):
     ap.add_argument("--out", required=True, help="出力先（.jpg）")
     ap.add_argument("--csv", default=None, help="CSVの場所（省略時 sasuke/games.csv）")
     ap.add_argument("--display", default=None, help="カードに出す名前（省略時はCSVの名前）")
+    ap.add_argument("--crop", type=float, default=None,
+                    help="写真の切り取り位置 0.0〜1.0（省略時 0.35）")
+    ap.add_argument("--origin", default=None, help="本国版の題名")
     args = ap.parse_args(argv)
-    name = render(args.vol, args.game, args.serif, args.out, args.csv, args.display)
+    name = render(args.vol, args.game, args.serif, args.out, args.csv,
+                  args.display, args.crop, args.origin)
     print(f"■ 描きました: vol.{args.vol:02d} 『{name}』 -> {args.out}")
     return 0
 

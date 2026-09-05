@@ -158,8 +158,22 @@ def main(dry_run=False):
     posted = load_posted()
     entry = pick_next(queue, posted)
     if entry is None:
-        print("■ 未投稿の vol がありません。キューを使い切りました（スキップ）")
-        return 0
+        # ■ ここは「成功」にしない（2026-09-05 変更）
+        # 以前は return 0 で静かに終わっていた。GitHub は緑のチェックを出すだけで
+        # メールも飛ばないので、投稿が止まったことに誰も気づけない。
+        # 何も投稿できていないのだから失敗として扱い、失敗通知を届かせる。
+        print("::error::サスケのボドゲ棚のキューを使い切りました。"
+              "sasuke/queue.json に次の回を追加してください。"
+              "追加するまで、毎週この失敗が出ます。")
+        return 1
+
+    # ■ 切れる前に気づけるようにする
+    # 残りが少なくなったらログに警告を出す。メールは飛ばないが、
+    # Actions の画面に黄色い印が付くので、見に行けば分かる。
+    remaining = len([e for e in queue if int(e["vol"]) not in posted]) - 1
+    if remaining <= 3:
+        print(f"::warning::キューの残りは、この回のあと {remaining} 本です。"
+              "そろそろ次の分を用意してください。")
 
     vol = int(entry["vol"])
     game = entry["game"]
@@ -179,7 +193,9 @@ def main(dry_run=False):
     # display は任意。入れておくと、カードの見出しだけ短い名前にできる
     # （例: game="カタン：カプコン版" / display="カタン"）。
     name = make_card.render(vol, game, serif, card_path,
-                            display=entry.get("display"))
+                            display=entry.get("display"),
+                            crop=entry.get("crop"),
+                            origin=entry.get("origin"))
     shutil.copyfile(CLOSING_SRC, closing_path)      # 締めロゴをそのまま公開位置へ
     print(f"■ カードを描きました: 『{name}』 -> {card_path}")
 
