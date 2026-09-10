@@ -286,7 +286,22 @@ def main(dry_run=False):
         print(f"■ {config.MIN_EVENTS}件未満のため、今週は投稿しません（スキップ）")
         return 0
 
+    # ■ ここで切っている（2026-09-11 追加のコメント）
+    # カルーセルは10枚まで。表紙1＋イベント8＋締め1で、イベントは8件が上限。
+    # 上の一覧は「候補」であって、投稿の中身ではない。実際に出るのはここから下。
+    over = picked[config.MAX_EVENTS:]
     picked = picked[:config.MAX_EVENTS]
+
+    # ■ 「候補」と「実際に出るもの」を必ず分けて残す（2026-09-11 追加）
+    # 週次には、切ったあとの一覧を出していなかった。
+    # そのせいで候補の一覧を投稿内容だと読み違え、
+    # 「入っています」と嘘の報告をしてしまった。ログが足りないと人が間違える。
+    print(f"■ 実際に投稿する{len(picked)}件（この順番で出ます）")
+    for e in picked:
+        print(f"   - {e['開始日']} {e['イベント名']}")
+    if over:
+        print(f"::warning::枠({config.MAX_EVENTS}件)に入らず今回は見送った{len(over)}件: "
+              + "／".join(f"{e['開始日']} {e['イベント名']}" for e in over))
 
     # --- 写真をそろえる --------------------------------------------------
     workdir = config.ROOT / "work"
