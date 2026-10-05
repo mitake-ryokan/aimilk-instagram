@@ -33,6 +33,7 @@ import instagram as ig
 #   コピーせずに import することで、直し忘れによる食い違いを防ぐ（run_monthly と同じやり方）。
 from run_weekly import save_secret, git_push, wait_urls_live
 import make_card
+import notify_line          # LINEへの通知。設定が無ければ黙って何もしない部品。
 
 QUEUE = HERE / "queue.json"
 CLOSING_SRC = HERE / "assets" / "closing.jpg"    # 締めロゴ画像（2枚目・JPEG）
@@ -165,6 +166,9 @@ def main(dry_run=False):
         print("::error::サスケのボドゲ棚のキューを使い切りました。"
               "sasuke/queue.json に次の回を追加してください。"
               "追加するまで、毎週この失敗が出ます。")
+        notify_line.send("【サスケのボドゲ棚】\n"
+                         "キューを使い切りました。今週は投稿できていません。\n"
+                         "次の回を用意するまで、毎週この知らせが届きます。")
         return 1
 
     # ■ 切れる前に気づけるようにする
@@ -215,8 +219,34 @@ def main(dry_run=False):
     print(f"■ 投稿しました: {post_id}")
 
     record_posted(vol)
+
+    # 投稿できたことをLINEで知らせる。失敗しても投稿は済んでいるので気にしない。
+    photo = make_card.find_photo(vol, name)
+    notify_line.send(f"【サスケのボドゲ棚】投稿しました\n"
+                     f"vol.{vol:02d}『{name}』\n"
+                     f"写真: {'あり' if photo else 'なし（深緑のパネル）'}\n"
+                     f"https://www.instagram.com/mitake_hakone/")
     return 0
 
 
+def _guarded(dry_run):
+    """本体を包んで、落ちたときにもLINEへ知らせる。
+
+    GitHub は失敗メールを出すが、埋もれる。LINEなら気づける。
+    通知を送ったうえで、失敗は失敗としてそのまま外に返す。
+    """
+    try:
+        return main(dry_run=dry_run)
+    except SystemExit as e:
+        if e.code:
+            notify_line.send(f"【サスケのボドゲ棚】投稿に失敗しました\n{e}\n"
+                             f"{notify_line.run_url()}")
+        raise
+    except Exception as e:
+        notify_line.send(f"【サスケのボドゲ棚】投稿に失敗しました\n"
+                         f"{type(e).__name__}: {e}\n{notify_line.run_url()}")
+        raise
+
+
 if __name__ == "__main__":
-    sys.exit(main(dry_run="--dry-run" in sys.argv))
+    sys.exit(_guarded(dry_run="--dry-run" in sys.argv))

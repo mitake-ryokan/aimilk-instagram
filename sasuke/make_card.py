@@ -381,10 +381,9 @@ def render(vol, game, serif, out_path, csv_path=None, display=None,
     y = PHOTO_H + 56
 
     d.text((x, y), f"vol.{int(vol):02d}", font=_f(BOLD_F, 40), fill=GOLD)
-    if origin:
-        of = _f(MED_F, 28)
-        ow = d.textlength(origin, font=of)
-        d.text((W - MARGIN - ow, y + 10), origin, font=of, fill=GRAY)
+    # ■ 本国版の題名はカードに出さない（2026-09-05 変更）
+    # queue.json の "origin" は残してあるが、これは棚で箱を探すための覚え書き。
+    # 投稿を見る人には要らない情報なので、絵には入れない。
     y += 62
 
     gf, glines, gsize = _fit_game(d, display_name, text_w)
