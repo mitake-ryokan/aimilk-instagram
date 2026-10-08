@@ -1,0 +1,32 @@
+name: 予約投稿の点検
+
+# ■ これは何か
+# posts/ に投稿を入れたプルリクエストが出たら、マージする前に中身を点検する。
+#   - post.json / caption.txt / 画像がそろっているか
+#   - 時刻の書き方（日本時間なら +09:00）
+#   - 画像がJPEGで、縦横比がInstagramの範囲か
+#   - ハッシュタグが5個以内か
+# プルリクエストの画面に緑のチェックが付けば、マージして大丈夫。
+# 赤い×なら、マージせずに直す。
+#
+# ここではInstagramに一切触らない。鍵（Secrets）も使わない。
+
+on:
+  pull_request:
+    paths:
+      - "posts/**"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 必要なライブラリを入れる
+        run: pip install "Pillow>=10.0"
+      - name: 中身を点検する
+        run: python posts/run_posts.py --check

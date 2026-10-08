@@ -1,0 +1,68 @@
+name: 予約投稿（posts/）
+
+# ■ これは何か
+# posts/ に入っていて、マージ済み（＝3号さんが承認した）の投稿を、
+# 決めた時刻に Instagram へ出す仕組み。30分おきに見に行く。
+# 時刻が来ていないもの・出し終わったものには何もしないので、ほとんどの回は数十秒で終わる。
+#
+# ■ 承認されていないものは出ない
+# 決まった時間に動く仕組み（schedule）は、いつも main だけを見る。
+# プルリクエストのままのもの（＝マージされていないもの）は、ここからは見えない。
+#
+# ■ サスケ・AIみるくとは別
+# ワークフローを分けてあるので、どれかが失敗しても他は巻き込まれない。
+# トークンは新設せず、みんなと同じ IG_ACCESS_TOKEN を延長して使い回す。
+
+on:
+  schedule:
+    # 毎時5分と35分（GitHubが混んでいると数分〜十数分遅れることがある）
+    - cron: "5,35 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "投稿せず、何が出るかだけ確かめる"
+        type: boolean
+        default: false
+
+# 前の回が終わっていないうちに次の回が始まって、同じ投稿を2回出さないようにする
+concurrency:
+  group: scheduled-posts
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # 投稿した記録（published.json など）をコミットするため
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 画像は作らないので、日本語フォントは入れない（そのぶん速い）
+      - name: 必要なライブラリを入れる
+        run: pip install -r requirements.txt
+
+      - name: 時刻が来た投稿を出す
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          IG_APP_SECRET: ${{ secrets.IG_APP_SECRET }}
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_TO: ${{ secrets.LINE_TO }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+          GITHUB_BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python posts/run_posts.py --dry-run
+          else
+            python posts/run_posts.py
+          fi
+
+      - name: 失敗したことを分かりやすく残す
+        if: failure()
+        run: echo "::error::予約投稿に失敗したものがあります。ログと posts/ の failed.json を確認してください。"

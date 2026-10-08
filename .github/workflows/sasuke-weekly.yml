@@ -71,6 +71,9 @@ jobs:
           # GH_PAT を入れておくと、延長したトークンを自動で Secrets に書き戻す
           GH_PAT: ${{ secrets.GH_PAT }}
           IG_APP_SECRET: ${{ secrets.IG_APP_SECRET }}
+          # LINE通知（notify_line.py）。Secrets に無ければ、通知せずに投稿だけする
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_TO: ${{ secrets.LINE_TO }}
           GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.event.repository.name }}
           GITHUB_BRANCH: ${{ github.ref_name }}
