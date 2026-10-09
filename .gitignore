@@ -3,3 +3,4 @@ work/
 new_token.txt
 __pycache__/
 *.pyc
+.claude/settings.local.json

@@ -33,6 +33,7 @@ import instagram as ig
 #   コピーせずに import することで、直し忘れによる食い違いを防ぐ（run_monthly と同じやり方）。
 from run_weekly import save_secret, git_push, wait_urls_live
 import make_card
+import notify_line          # LINEへの通知。設定が無ければ黙って何もしない部品。
 
 QUEUE = HERE / "queue.json"
 CLOSING_SRC = HERE / "assets" / "closing.jpg"    # 締めロゴ画像（2枚目・JPEG）
@@ -158,8 +159,25 @@ def main(dry_run=False):
     posted = load_posted()
     entry = pick_next(queue, posted)
     if entry is None:
-        print("■ 未投稿の vol がありません。キューを使い切りました（スキップ）")
-        return 0
+        # ■ ここは「成功」にしない（2026-09-05 変更）
+        # 以前は return 0 で静かに終わっていた。GitHub は緑のチェックを出すだけで
+        # メールも飛ばないので、投稿が止まったことに誰も気づけない。
+        # 何も投稿できていないのだから失敗として扱い、失敗通知を届かせる。
+        print("::error::サスケのボドゲ棚のキューを使い切りました。"
+              "sasuke/queue.json に次の回を追加してください。"
+              "追加するまで、毎週この失敗が出ます。")
+        notify_line.send("【サスケのボドゲ棚】\n"
+                         "キューを使い切りました。今週は投稿できていません。\n"
+                         "次の回を用意するまで、毎週この知らせが届きます。")
+        return 1
+
+    # ■ 切れる前に気づけるようにする
+    # 残りが少なくなったらログに警告を出す。メールは飛ばないが、
+    # Actions の画面に黄色い印が付くので、見に行けば分かる。
+    remaining = len([e for e in queue if int(e["vol"]) not in posted]) - 1
+    if remaining <= 3:
+        print(f"::warning::キューの残りは、この回のあと {remaining} 本です。"
+              "そろそろ次の分を用意してください。")
 
     vol = int(entry["vol"])
     game = entry["game"]
@@ -179,7 +197,9 @@ def main(dry_run=False):
     # display は任意。入れておくと、カードの見出しだけ短い名前にできる
     # （例: game="カタン：カプコン版" / display="カタン"）。
     name = make_card.render(vol, game, serif, card_path,
-                            display=entry.get("display"))
+                            display=entry.get("display"),
+                            crop=entry.get("crop"),
+                            origin=entry.get("origin"))
     shutil.copyfile(CLOSING_SRC, closing_path)      # 締めロゴをそのまま公開位置へ
     print(f"■ カードを描きました: 『{name}』 -> {card_path}")
 
@@ -199,8 +219,34 @@ def main(dry_run=False):
     print(f"■ 投稿しました: {post_id}")
 
     record_posted(vol)
+
+    # 投稿できたことをLINEで知らせる。失敗しても投稿は済んでいるので気にしない。
+    photo = make_card.find_photo(vol, name)
+    notify_line.send(f"【サスケのボドゲ棚】投稿しました\n"
+                     f"vol.{vol:02d}『{name}』\n"
+                     f"写真: {'あり' if photo else 'なし（深緑のパネル）'}\n"
+                     f"https://www.instagram.com/mitake_hakone/")
     return 0
 
 
+def _guarded(dry_run):
+    """本体を包んで、落ちたときにもLINEへ知らせる。
+
+    GitHub は失敗メールを出すが、埋もれる。LINEなら気づける。
+    通知を送ったうえで、失敗は失敗としてそのまま外に返す。
+    """
+    try:
+        return main(dry_run=dry_run)
+    except SystemExit as e:
+        if e.code:
+            notify_line.send(f"【サスケのボドゲ棚】投稿に失敗しました\n{e}\n"
+                             f"{notify_line.run_url()}")
+        raise
+    except Exception as e:
+        notify_line.send(f"【サスケのボドゲ棚】投稿に失敗しました\n"
+                         f"{type(e).__name__}: {e}\n{notify_line.run_url()}")
+        raise
+
+
 if __name__ == "__main__":
-    sys.exit(main(dry_run="--dry-run" in sys.argv))
+    sys.exit(_guarded(dry_run="--dry-run" in sys.argv))
