@@ -203,11 +203,82 @@ def check_all():
     return 1 if bad else 0
 
 
+# ---------------------------------------------------------------- トークンと画像URLの確認
+# ■ なぜサスケ・週刊みるくの部品を読み込まずに、ここに同じものを置いているのか（2026-10-10）
+# run_sasuke や run_weekly を読み込むと、画像を作る部品（make_card・builder）まで一緒に読み込まれ、
+# その部品が「日本語フォントがない」と言って止まる。予約投稿は画像を作らないのでフォントは要らない。
+# 第0回の予告がこれで3回失敗したので、必要な3つの手順だけをここに写した。
+# 中身は run_sasuke.ensure_token / run_weekly.save_secret / run_weekly.wait_urls_live と同じ。
+def save_secret(name, value):
+    """GitHubのSecretsを書き換える（GH_PATがあるときだけ）。成功したらTrue。"""
+    import os
+    import config
+    if not config.GH_PAT:
+        return False
+    repo = f"{config.GITHUB_OWNER}/{config.GITHUB_REPO}"
+    r = subprocess.run(
+        ["gh", "secret", "set", name, "--body", value, "--repo", repo],
+        env={**os.environ, "GH_TOKEN": config.GH_PAT},
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"::warning::Secretsの更新に失敗: {r.stderr[:300]}")
+        return False
+    return True
+
+
+def ensure_token():
+    """トークンを延長して、必要なら Secrets に書き戻す。最後に whoami で生きているか確かめる。"""
+    import config
+    import instagram as ig
+    try:
+        new_token, days = ig.refresh_token()
+        print(f"■ トークンを延長しました。延長後の残り: 約{days}日")
+        print(f"::add-mask::{new_token}")
+        if new_token != config.IG_ACCESS_TOKEN:
+            if save_secret("IG_ACCESS_TOKEN", new_token):
+                print("■ 新しいトークンを GitHub の Secrets に保存しました")
+            else:
+                print("::warning::新しいトークンを保存できませんでした（GH_PAT 未設定）。"
+                      "手動で Secrets を更新しないと、いずれ投稿が止まります")
+            config.IG_ACCESS_TOKEN = new_token
+        if days < config.TOKEN_WARN_DAYS:
+            raise SystemExit(
+                f"アクセストークンの残りが{days}日です。延長が効いていません。"
+                "手動で取り直してください。（投稿は中止しました）")
+    except ig.InstagramError as e:
+        print(f"■ トークンの延長はできませんでした: {str(e)[:200]}")
+        print("　（発行から24時間経っていないトークンは延長できません。初回は正常です）")
+
+    try:
+        me = ig.whoami()
+    except ig.InstagramError as e:
+        raise SystemExit(
+            "アクセストークンが使えません。取り直して Secrets を更新してください。\n"
+            f"（投稿は中止しました）\n{str(e)[:300]}")
+    print(f"■ 投稿先: @{me.get('username')}（id: {me.get('user_id')}）")
+
+
+def wait_urls_live(urls, timeout=180):
+    """画像の公開URLが見えるようになるまで待つ（見えないURLを渡すとInstagramが失敗する）。"""
+    import time
+    import requests
+    started = time.time()
+    for u in urls:
+        while True:
+            try:
+                if requests.head(u, timeout=20, allow_redirects=True).status_code == 200:
+                    break
+            except requests.RequestException:
+                pass
+            if time.time() - started > timeout:
+                raise SystemExit(f"画像の公開URLが見えるようになりません: {u}")
+            time.sleep(5)
+    print("■ 画像の公開URL、すべて確認できました")
+
+
 def run(dry_run=False):
     import instagram as ig
     import notify_line
-    from run_sasuke import ensure_token
-    from run_weekly import wait_urls_live
 
     now = dt.datetime.now(dt.timezone.utc)
     failures = 0
